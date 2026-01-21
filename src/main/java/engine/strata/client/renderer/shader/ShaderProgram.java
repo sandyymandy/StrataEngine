@@ -1,5 +1,6 @@
 package engine.strata.client.renderer.shader;
 
+import engine.strata.util.Identifier;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.BufferUtils;
@@ -19,9 +20,9 @@ public abstract class ShaderProgram {
     // Float Buffer for matrix loading (Reusable to save memory)
     private static final FloatBuffer matrixBuffer = BufferUtils.createFloatBuffer(16);
 
-    public ShaderProgram(String vertexFile, String fragmentFile) {
-        vertexShaderID = loadShader(vertexFile, GL20.GL_VERTEX_SHADER);
-        fragmentShaderID = loadShader(fragmentFile, GL20.GL_FRAGMENT_SHADER);
+    public ShaderProgram(Identifier vertexFile, Identifier fragmentFile) {
+        vertexShaderID = loadShader(vertexFile.toAssetPath("shaders", ".glsl"), GL20.GL_VERTEX_SHADER);
+        fragmentShaderID = loadShader(fragmentFile.toAssetPath("shaders", ".glsl"), GL20.GL_FRAGMENT_SHADER);
         programID = GL20.glCreateProgram();
 
         GL20.glAttachShader(programID, vertexShaderID);

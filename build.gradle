@@ -29,7 +29,8 @@ dependencies {
     implementation "org.lwjgl:lwjgl-glfw:$lwjglVersion"
     runtimeOnly "org.lwjgl:lwjgl-glfw:$lwjglVersion:$lwjglNatives"
 
-    // JOML
+    // Math
+    implementation "org.apache.commons:commons-text:1.11.0"
     implementation "org.joml:joml:$jomlVersion"
 
     // SLF4J API

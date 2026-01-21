@@ -1,6 +1,6 @@
 package engine.strata.core;
 
-public enum Side {
+public enum Environment {
     CLIENT,
     SERVER
 }

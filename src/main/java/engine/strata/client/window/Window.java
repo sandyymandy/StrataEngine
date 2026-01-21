@@ -173,4 +173,24 @@ public class Window {
     public void swapBuffers() {
         glfwSwapBuffers(handle);
     }
+
+    public void lockCursor() {
+        glfwSetInputMode(handle, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    }
+
+    public void unlockCursor() {
+        glfwSetInputMode(handle, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    }
+
+    public double getMouseX() {
+        double[] x = new double[1];
+        glfwGetCursorPos(handle, x, null);
+        return x[0];
+    }
+
+    public double getMouseY() {
+        double[] y = new double[1];
+        glfwGetCursorPos(handle, null, y);
+        return y[0];
+    }
 }

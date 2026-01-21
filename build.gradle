@@ -1,0 +1,47 @@
+plugins {
+    id 'java'
+}
+
+group = 'engine.strata'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+// Define versions here directly to avoid link errors
+def lwjglVersion = "3.3.3"
+def jomlVersion = "1.10.8"
+def slf4jVersion = "2.0.16"
+def log4jVersion = "2.24.1"
+def lwjglNatives = "natives-windows" // Change to natives-linux or natives-macos if on a different OS
+
+dependencies {
+    // LWJGL Core - THIS WAS MISSING AND IS LIKELY THE CAUSE
+    implementation "org.lwjgl:lwjgl:$lwjglVersion"
+    runtimeOnly "org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives"
+
+    // OpenGL
+    implementation "org.lwjgl:lwjgl-opengl:$lwjglVersion"
+    runtimeOnly "org.lwjgl:lwjgl-opengl:$lwjglVersion:$lwjglNatives"
+
+    // GLFW
+    implementation "org.lwjgl:lwjgl-glfw:$lwjglVersion"
+    runtimeOnly "org.lwjgl:lwjgl-glfw:$lwjglVersion:$lwjglNatives"
+
+    // JOML
+    implementation "org.joml:joml:$jomlVersion"
+
+    // SLF4J API
+    implementation "org.slf4j:slf4j-api:$slf4jVersion"
+
+    // Log4j2 Implementation
+    implementation "org.apache.logging.log4j:log4j-core:$log4jVersion"
+    implementation "org.apache.logging.log4j:log4j-api:$log4jVersion"
+    implementation "org.apache.logging.log4j:log4j-slf4j2-impl:$log4jVersion"
+}
+
+// This forces the IDE to copy the natives correctly
+test {
+    useJUnitPlatform()
+}

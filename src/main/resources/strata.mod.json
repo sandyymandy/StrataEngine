@@ -1,0 +1,15 @@
+{
+  "id": "strata",
+  "name": "Strata Engine",
+  "version": "1.0.0",
+  "api_version": "1.0.0",
+  "description": "The core engine logic.",
+  "author": "SandyMandy",
+  "entrypoints": {
+    "common": ["engine.strata.core.StrataCore"],
+    "client": ["engine.strata.client.StrataClient"]
+  },
+  "depends": {
+    "java": ">=21"
+  }
+}

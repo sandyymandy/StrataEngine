@@ -32,4 +32,15 @@ public class EntrypointManager {
             }
         }
     }
+
+    public static void loadDynamic(Identifier id, String className, ClassLoader loader) {
+        try {
+            Class<?> clazz = Class.forName(className, true, loader);
+            // ... same instantiation logic as before ...
+            Object instance = clazz.getDeclaredConstructor().newInstance();
+            ENTRYPOINTS.computeIfAbsent(id, k -> new ArrayList<>()).add(instance);
+        } catch (Exception e) {
+            System.err.println("Could not load class " + className + " for mod " + id.namespace);
+        }
+    }
 }

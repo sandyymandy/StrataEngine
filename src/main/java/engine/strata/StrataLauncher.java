@@ -2,28 +2,44 @@ package engine.strata;
 
 import engine.strata.api.ClientModInitializer;
 import engine.strata.api.ModInitializer;
+import engine.strata.api.mod.ModLoader;
 import engine.strata.client.StrataClient;
 import engine.strata.core.entrypoint.EntrypointManager;
+import engine.strata.core.io.FolderManager;
 import engine.strata.server.StrataServer;
 import engine.strata.util.Identifier;
+import engine.strata.util.StrataPaths;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class StrataLauncher {
+    public static Logger LOGGER = LoggerFactory.getLogger("StrataLauncher");
+
     public static void main(String[] args) {
         boolean isServer = false;
-        for (String arg : args) if (arg.equalsIgnoreCase("--server")) isServer = true;
+        Path runDir = null;
 
-        // 1. Discovery (The Engine is its own mod!)
-        Identifier engineId = Identifier.ofEngine("engine");
-
-        // Load the Engine's Core Logic
-        EntrypointManager.load(engineId, "engine.strata.core.StrataCore", ModInitializer.class);
-
-        if (!isServer) {
-            // Load the Engine's Renderer/Window Logic
-            EntrypointManager.load(engineId, "engine.strata.client.StrataClient", ClientModInitializer.class);
+        for (int i = 0; i < args.length; i++) {
+            if (args[i].equalsIgnoreCase("--server")) isServer = true;
+            if (args[i].equalsIgnoreCase("--runDir") && i + 1 < args.length) {
+                runDir = Paths.get(args[i + 1]);
+            }
         }
 
-        // 2. Initialize Common Logic (Both Side)
+        // Fallback to AppData if no arg provided
+        if (runDir == null) {
+            runDir = StrataPaths.getDefaultWorkDir();
+        }
+
+        FolderManager.setup(runDir);
+
+        LOGGER.info("Run directory set to: " + FolderManager.getRootDir());
+
+        ModLoader.loadMods();
+
         EntrypointManager.invoke(ModInitializer.class, ModInitializer::onInitialize);
 
         if (isServer) {

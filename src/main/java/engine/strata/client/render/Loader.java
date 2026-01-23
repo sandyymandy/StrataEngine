@@ -1,6 +1,6 @@
-package engine.strata.client.renderer;
+package engine.strata.client.render;
 
-import engine.strata.client.renderer.model.RawModel;
+import engine.strata.client.render.model.RawModel;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL15;

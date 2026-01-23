@@ -1,4 +1,4 @@
-package engine.strata.client.renderer.shader;
+package engine.strata.client.render.shader;
 
 import engine.strata.util.Identifier;
 import org.joml.Matrix4f;

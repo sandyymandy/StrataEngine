@@ -1,39 +1,34 @@
 package engine.strata.client.input;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import engine.strata.client.input.keybind.Keybind;
+import org.lwjgl.glfw.GLFW;
 
-import static org.lwjgl.glfw.GLFW.GLFW_PRESS;
-import static org.lwjgl.glfw.GLFW.GLFW_RELEASE;
+import java.util.HashMap;
+import java.util.Map;
 
 public final class InputSystem {
 
-    private static final Map<Integer, List<Keybind>> KEYBINDS = new HashMap<>();
+    private static final Map<Integer, Keybind> KEYBINDS = new HashMap<>();
 
-    public static void register(Keybind bind) {
-        KEYBINDS
-                .computeIfAbsent(bind.key, k -> new ArrayList<>())
-                .add(bind);
+    public static void register(Keybind keybind) {
+        KEYBINDS.put(keybind.key, keybind);
     }
 
-    static void handleKeyEvent(int key, int action) {
-        List<Keybind> binds = KEYBINDS.get(key);
-        if (binds == null) return;
+    public static void handleKeyEvent(int key, int action) {
+        Keybind bind = KEYBINDS.get(key);
+        if (bind == null) return;
 
-        if (action == GLFW_PRESS) {
-            binds.forEach(Keybind::onPress);
-        } else if (action == GLFW_RELEASE) {
-            binds.forEach(Keybind::onRelease);
+        if (action == GLFW.GLFW_PRESS) {
+            bind.onPress();
+        } else if (action == GLFW.GLFW_RELEASE) {
+            bind.onRelease();
         }
     }
 
     public static void update() {
-        for (List<Keybind> binds : KEYBINDS.values()) {
-            for (Keybind bind : binds) {
-                bind.update();
-            }
+        for (Keybind bind : KEYBINDS.values()) {
+            bind.update();
         }
     }
 }
+

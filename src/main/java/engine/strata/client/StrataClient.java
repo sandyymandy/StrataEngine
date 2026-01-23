@@ -1,85 +1,52 @@
 package engine.strata.client;
 
+import engine.helios.*;
 import engine.strata.client.input.InputSystem;
-import engine.strata.client.renderer.Camera;
-import engine.strata.client.renderer.Loader;
-import engine.strata.client.renderer.MasterRenderer;
-import engine.strata.client.renderer.entity.RenderEntity;
-import engine.strata.client.renderer.model.RawModel;
+import engine.strata.client.input.keybind.Keybinds;
+import engine.strata.client.render.Camera;
 import engine.strata.client.window.Window;
 import engine.strata.client.window.WindowConfig;
-import engine.strata.client.window.WindowMode;
-import org.joml.Vector3f;
-import org.lwjgl.glfw.GLFW;
+import engine.strata.util.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
+import static org.lwjgl.glfw.GLFW.glfwTerminate;
+import static org.lwjgl.opengl.GL11.*;
 
 public class StrataClient {
     private Window window;
-    private MasterRenderer renderer;
     private Camera camera;
-    private Loader loader;
-    private List<RenderEntity> allEntities = new ArrayList<>(); // Add this
+    private MatrixStack matrixStack;
+
     private boolean running = true;
+    boolean hideCursor = false;
     public static final Logger LOGGER = LoggerFactory.getLogger("Client");
-    // Game Loop Constants
+
     private static final double TICKS_PER_SECOND = 20.0;
     private static final double TIME_PER_TICK = 1.0 / TICKS_PER_SECOND;
 
     public void init() {
-        LOGGER.info("Initializing Client Graphics...");
-        window = new Window(new WindowConfig(1280, 720, "StrataEngine"));
-        loader = new Loader();
-        loader = new Loader();
-        renderer = new MasterRenderer(window);
-        camera = new Camera();
-        window.lockCursor();
+        LOGGER.info("Initializing Client");
 
-        // Assign a different color to each face so we can see the 3D depth
-        float[] colors = {
-                1,0,0, 1,0,0, 1,0,0, 1,0,0, // Red face
-                0,1,0, 0,1,0, 0,1,0, 0,1,0, // Green face
-                0,0,1, 0,0,1, 0,0,1, 0,0,1, // Blue face
-                1,1,0, 1,1,0, 1,1,0, 1,1,0, // Yellow face
-                1,0,1, 1,0,1, 1,0,1, 1,0,1, // Magenta face
-                0,1,1, 0,1,1, 0,1,1, 0,1,1  // Cyan face
-        };
+        // 1. Setup Window
+        this.window = new Window(new WindowConfig(1280, 720, "StrataEngine"));
+        this.camera = new Camera();
+        this.matrixStack = new MatrixStack();
 
-        // Positions: 8 corners of the cube
-        float[] vertices = {
-                -0.5f, 0.5f, 0.5f,  // 0: Front-Top-Left
-                -0.5f,-0.5f, 0.5f,  // 1: Front-Bottom-Left
-                0.5f,-0.5f, 0.5f,  // 2: Front-Bottom-Right
-                0.5f, 0.5f, 0.5f,  // 3: Front-Top-Right
-                -0.5f, 0.5f,-0.5f,  // 4: Back-Top-Left
-                -0.5f,-0.5f,-0.5f,  // 5: Back-Bottom-Left
-                0.5f,-0.5f,-0.5f,  // 6: Back-Bottom-Right
-                0.5f, 0.5f,-0.5f   // 7: Back-Top-Right
-        };
+        // 2. Initialize Helios Shaders
+        initHelios();
+    }
 
-        // Indices: 12 triangles (2 per face), all CCW
-        int[] indices = {
-                // Front face
-                0, 1, 3, 3, 1, 2,
-                // Back face
-                4, 7, 5, 5, 7, 6,
-                // Left face
-                4, 5, 0, 0, 5, 1,
-                // Right face
-                3, 2, 7, 7, 2, 6,
-                // Top face
-                4, 0, 7, 7, 0, 3,
-                // Bottom face
-                1, 5, 2, 2, 5, 6
-        };
+    private void initHelios() {
+        // Register core shaders using the Helios ShaderManager
+        ShaderManager.register("generic_3d",
+                Identifier.of("strata", "vertex"),
+                Identifier.of("strata", "fragment")
+        );
 
-        RawModel cubeModel = loader.loadToVAO(vertices, colors, indices);
-
-        allEntities.add(new RenderEntity(cubeModel, new Vector3f(0, 0, -5), 0, 0, 0, 1));
-        allEntities.add(new RenderEntity(cubeModel, new Vector3f(2, 0, -5), 0, 0, 0, 1));
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+        glEnable(GL_DEPTH_TEST);
     }
 
     /**
@@ -97,58 +64,145 @@ public class StrataClient {
 
             accumulator += deltaTime;
 
-            // 1. Input Processing (Variable)
-            window.pollEvents(); // Use your Window class method
+            processInput();
 
-            // 2. Fixed Update (Logic) - Catch up if we are lagging
             while (accumulator >= TIME_PER_TICK) {
                 tick();
                 accumulator -= TIME_PER_TICK;
             }
 
-            // 3. Render (Variable)
-            // 'alpha' is how far we are between the last tick and the next tick (0.0 to 1.0)
-            // Use this for interpolation!
-            double alpha = accumulator / TIME_PER_TICK;
-            render((float) alpha);
-
-            // Optional: Cap FPS if needed, otherwise run unlimited
+            // Alpha used for interpolation
+            render((float) (accumulator / TIME_PER_TICK));
         }
 
         stop();
     }
 
-    // Fixed Logic: Physics, AI, Network Packets
-    private void tick() {
-        InputSystem.update();
-    }
-
-    // Variable Render: Draw the scene
     private void render(float alpha) {
-        // 1. Logic
+        // 1. Clear Screen (like old prepare() method)
+        RenderSystem.clear(0.5f, 0.7f, 0.9f, 1.0f);
+
+        // 2. Update Camera
         camera.move(window);
 
-        // Spin the first entity
-        allEntities.get(0).increaseRotation(0.01F, 0.01F, 0);
+        // 3. Start Shader and load View/Projection (like old code)
+        ShaderManager.use("generic_3d");
+        Shader shader = ShaderManager.getCurrent();
 
-        // 2. Process
-        for (RenderEntity e : allEntities) {
-            renderer.processEntity(e);
+        if (shader == null) {
+            LOGGER.error("Shader is null!");
+            window.swapBuffers();
+            return;
         }
 
-        // 3. Render
-        renderer.render(camera);
+        // Load these ONCE per frame (like your old EntityRenderer constructor)
+        shader.setUniform("u_Projection", camera.getProjectionMatrix());
+        shader.setUniform("u_View", camera.getViewMatrix());
+
+        Tessellator tess = Tessellator.getInstance();
+        BufferBuilder builder = tess.getBuffer();
+
+        // Render a grid of cubes - each cube gets its own draw call
+        // This matches your old batch rendering approach
+        for (int x = -2; x <= 2; x++) {
+            for (int z = -5; z >= -10; z--) {
+                // Calculate model matrix
+                matrixStack.push();
+                matrixStack.translate(x * 2, 0, z);
+                matrixStack.rotate(System.currentTimeMillis() / 20f, 0, 1, 0);
+
+                // Load transformation matrix (like old prepareInstance)
+                shader.setUniform("u_Model", matrixStack.peek());
+
+                // Build cube geometry (like old prepareRawModel + drawElements)
+                builder.begin(VertexFormat.POSITION_COLOR);
+                drawCube(builder, 0, 0, 0);
+                tess.draw();
+
+                matrixStack.pop();
+            }
+        }
+
+        // Finalize frame
         window.swapBuffers();
 
-        if (GLFW.glfwGetKey(window.getHandle(), GLFW.GLFW_KEY_ESCAPE) == GLFW.GLFW_PRESS) window.unlockCursor();
-        if (GLFW.glfwGetKey(window.getHandle(), GLFW.GLFW_KEY_F) == GLFW.GLFW_PRESS) window.lockCursor();
+        if(Keybinds.HIDE_CURSOR.isCanceled()) hideCursor = !hideCursor;
+        if(hideCursor) window.lockCursor(); else window.unlockCursor();
+    }
 
+    private void tick() {
+        // Game logic updates (physics, etc)
+    }
+
+    private void processInput() {
+        window.pollEvents();
+        InputSystem.update();
     }
 
     public void stop() {
         running = false;
-        renderer.cleanUp();
-        loader.cleanUp();
         window.destroy();
+        glfwTerminate();
+    }
+
+    /**
+     * Draw a cube in LOCAL space (0,0,0 centered)
+     * The shader will transform it using u_Model matrix
+     * This matches your old vertex array approach
+     */
+    private void drawCube(BufferBuilder builder, float x, float y, float z) {
+        // Front face (CCW when viewed from front)
+        builder.pos(x-0.5f, y-0.5f, z+0.5f).color(1, 0, 0, 1).next();
+        builder.pos(x+0.5f, y-0.5f, z+0.5f).color(1, 0, 0, 1).next();
+        builder.pos(x+0.5f, y+0.5f, z+0.5f).color(1, 0, 0, 1).next();
+
+        builder.pos(x+0.5f, y+0.5f, z+0.5f).color(1, 0, 0, 1).next();
+        builder.pos(x-0.5f, y+0.5f, z+0.5f).color(1, 0, 0, 1).next();
+        builder.pos(x-0.5f, y-0.5f, z+0.5f).color(1, 0, 0, 1).next();
+
+        // Back face (CCW when viewed from front)
+        builder.pos(x+0.5f, y-0.5f, z-0.5f).color(0, 1, 0, 1).next();
+        builder.pos(x-0.5f, y-0.5f, z-0.5f).color(0, 1, 0, 1).next();
+        builder.pos(x-0.5f, y+0.5f, z-0.5f).color(0, 1, 0, 1).next();
+
+        builder.pos(x-0.5f, y+0.5f, z-0.5f).color(0, 1, 0, 1).next();
+        builder.pos(x+0.5f, y+0.5f, z-0.5f).color(0, 1, 0, 1).next();
+        builder.pos(x+0.5f, y-0.5f, z-0.5f).color(0, 1, 0, 1).next();
+
+        // Top face (CCW when viewed from above)
+        builder.pos(x-0.5f, y+0.5f, z+0.5f).color(0, 0, 1, 1).next();
+        builder.pos(x+0.5f, y+0.5f, z+0.5f).color(0, 0, 1, 1).next();
+        builder.pos(x+0.5f, y+0.5f, z-0.5f).color(0, 0, 1, 1).next();
+
+        builder.pos(x+0.5f, y+0.5f, z-0.5f).color(0, 0, 1, 1).next();
+        builder.pos(x-0.5f, y+0.5f, z-0.5f).color(0, 0, 1, 1).next();
+        builder.pos(x-0.5f, y+0.5f, z+0.5f).color(0, 0, 1, 1).next();
+
+        // Bottom face (CCW when viewed from below)
+        builder.pos(x-0.5f, y-0.5f, z-0.5f).color(1, 1, 0, 1).next();
+        builder.pos(x+0.5f, y-0.5f, z-0.5f).color(1, 1, 0, 1).next();
+        builder.pos(x+0.5f, y-0.5f, z+0.5f).color(1, 1, 0, 1).next();
+
+        builder.pos(x+0.5f, y-0.5f, z+0.5f).color(1, 1, 0, 1).next();
+        builder.pos(x-0.5f, y-0.5f, z+0.5f).color(1, 1, 0, 1).next();
+        builder.pos(x-0.5f, y-0.5f, z-0.5f).color(1, 1, 0, 1).next();
+
+        // Right face (CCW when viewed from right)
+        builder.pos(x+0.5f, y-0.5f, z+0.5f).color(1, 0, 1, 1).next();
+        builder.pos(x+0.5f, y-0.5f, z-0.5f).color(1, 0, 1, 1).next();
+        builder.pos(x+0.5f, y+0.5f, z-0.5f).color(1, 0, 1, 1).next();
+
+        builder.pos(x+0.5f, y+0.5f, z-0.5f).color(1, 0, 1, 1).next();
+        builder.pos(x+0.5f, y+0.5f, z+0.5f).color(1, 0, 1, 1).next();
+        builder.pos(x+0.5f, y-0.5f, z+0.5f).color(1, 0, 1, 1).next();
+
+        // Left face (CCW when viewed from left)
+        builder.pos(x-0.5f, y-0.5f, z-0.5f).color(0, 1, 1, 1).next();
+        builder.pos(x-0.5f, y-0.5f, z+0.5f).color(0, 1, 1, 1).next();
+        builder.pos(x-0.5f, y+0.5f, z+0.5f).color(0, 1, 1, 1).next();
+
+        builder.pos(x-0.5f, y+0.5f, z+0.5f).color(0, 1, 1, 1).next();
+        builder.pos(x-0.5f, y+0.5f, z-0.5f).color(0, 1, 1, 1).next();
+        builder.pos(x-0.5f, y-0.5f, z-0.5f).color(0, 1, 1, 1).next();
     }
 }

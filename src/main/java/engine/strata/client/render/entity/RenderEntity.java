@@ -1,6 +1,6 @@
-package engine.strata.client.renderer.entity;
+package engine.strata.client.render.entity;
 
-import engine.strata.client.renderer.model.RawModel;
+import engine.strata.client.render.model.RawModel;
 import org.joml.Vector3f;
 
 public class RenderEntity {

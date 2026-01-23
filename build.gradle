@@ -18,8 +18,9 @@ def gsonVersion = "2.10.1"
 def lwjglNatives = "natives-windows" // Change to natives-linux or natives-macos if on a different OS
 
 dependencies {
-    // LWJGL Core - THIS WAS MISSING AND IS LIKELY THE CAUSE
+    // LWJGL
     implementation "org.lwjgl:lwjgl:$lwjglVersion"
+    implementation "org.lwjgl:lwjgl-stb:$lwjglVersion"
     runtimeOnly "org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives"
 
     // OpenGL

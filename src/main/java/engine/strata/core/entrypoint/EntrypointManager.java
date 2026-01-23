@@ -1,46 +1,43 @@
 package engine.strata.core.entrypoint;
 
-import engine.strata.util.Identifier;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 public class EntrypointManager {
-    // Stores: "strata:main" -> List of instantiated entrypoint classes
-    private static final Map<Identifier, List<Object>> ENTRYPOINTS = new HashMap<>();
+    // Key is the entrypoint type (e.g., "common"), Value is the list of ALL mod instances for that type
+    private static final Map<String, List<Object>> ENTRYPOINTS = new HashMap<>();
 
-    public static <T> void load(Identifier id, String className, Class<T> type) {
+    /**
+     * Registers an entrypoint instance under a specific key (type).
+     */
+    public static void load(String key, String className, ClassLoader loader) {
         try {
-            Class<?> clazz = Class.forName(className);
-            if (type.isAssignableFrom(clazz)) {
-                T instance = type.cast(clazz.getDeclaredConstructor().newInstance());
-                ENTRYPOINTS.computeIfAbsent(id, k -> new ArrayList<>()).add(instance);
-            }
+            Class<?> clazz = Class.forName(className, true, loader);
+            Object instance = clazz.getDeclaredConstructor().newInstance();
+            // We only care about the 'key' (e.g., "common") regardless of namespace
+            ENTRYPOINTS.computeIfAbsent(key, k -> new ArrayList<>()).add(instance);
         } catch (Exception e) {
-            System.err.println("Failed to load entrypoint [" + id + "] from class: " + className);
+            System.err.println("Failed to load entrypoint [" + key + "] from class: " + className);
             e.printStackTrace();
         }
     }
 
-    public static <T> void invoke(Class<T> type, java.util.function.Consumer<T> action) {
-        for (List<Object> list : ENTRYPOINTS.values()) {
-            for (Object entry : list) {
+    /**
+     * Invokes all registered objects for a specific key (e.g., "common")
+     * that match the provided interface.
+     */
+    public static <T> void invoke(String key, Class<T> type, Consumer<T> action) {
+        List<Object> entries = ENTRYPOINTS.get(key);
+
+        if (entries != null) {
+            for (Object entry : entries) {
                 if (type.isInstance(entry)) {
                     action.accept(type.cast(entry));
                 }
             }
-        }
-    }
-
-    public static void loadDynamic(Identifier id, String className, ClassLoader loader) {
-        try {
-            Class<?> clazz = Class.forName(className, true, loader);
-            // ... same instantiation logic as before ...
-            Object instance = clazz.getDeclaredConstructor().newInstance();
-            ENTRYPOINTS.computeIfAbsent(id, k -> new ArrayList<>()).add(instance);
-        } catch (Exception e) {
-            System.err.println("Could not load class " + className + " for mod " + id.namespace);
         }
     }
 }

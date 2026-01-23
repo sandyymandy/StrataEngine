@@ -1,5 +1,8 @@
-package engine.strata.client.input;
+package engine.strata.client.input.keybind;
 
+import engine.strata.client.StrataClient;
+import engine.strata.client.input.InputState;
+import engine.strata.client.input.InputSystem;
 import engine.strata.util.Identifier;
 
 public final class Keybind {
@@ -14,17 +17,19 @@ public final class Keybind {
     public Keybind(Identifier id, int key) {
         this.id = id;
         this.key = key;
+
+        InputSystem.register(this);
     }
 
-    void onPress() {
+    public void onPress() {
         isDown = true;
     }
 
-    void onRelease() {
+    public void onRelease() {
         isDown = false;
     }
 
-    void update() {
+    public void update() {
         switch (state) {
             case IDLE -> {
                 if (isDown) state = InputState.INITIATED;
@@ -37,7 +42,19 @@ public final class Keybind {
         }
     }
 
-    public InputState getState() {
-        return state;
+    public boolean isIdle(){
+        return state.equals(InputState.IDLE);
+    }
+
+    public boolean isInitiated(){
+        return state.equals(InputState.INITIATED);
+    }
+
+    public boolean isActive(){
+        return state.equals(InputState.ACTIVE);
+    }
+
+    public boolean isCanceled(){
+        return state.equals(InputState.CANCELED);
     }
 }

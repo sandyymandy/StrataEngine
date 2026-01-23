@@ -1,4 +1,4 @@
-package engine.strata.client.renderer.shader;
+package engine.strata.client.render.shader;
 
 import engine.strata.util.Identifier;
 import org.joml.Matrix4f;
@@ -22,7 +22,7 @@ public abstract class ShaderProgram {
 
     public ShaderProgram(Identifier vertexFile, Identifier fragmentFile) {
         vertexShaderID = loadShader(vertexFile.toAssetPath("shaders", ".glsl"), GL20.GL_VERTEX_SHADER);
-        fragmentShaderID = loadShader(fragmentFile.toAssetPath("shaders", ".glsl"), GL20.GL_FRAGMENT_SHADER);
+        fragmentShaderID = loadShader(fragmentFile.toAssetPath( "shaders", ".glsl"), GL20.GL_FRAGMENT_SHADER);
         programID = GL20.glCreateProgram();
 
         GL20.glAttachShader(programID, vertexShaderID);

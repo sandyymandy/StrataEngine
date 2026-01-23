@@ -1,4 +1,4 @@
-package engine.strata.client.renderer.model;
+package engine.strata.client.render.model;
 
 public class RawModel {
     private final int vaoID;

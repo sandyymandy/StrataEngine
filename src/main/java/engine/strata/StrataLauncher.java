@@ -7,7 +7,6 @@ import engine.strata.client.StrataClient;
 import engine.strata.core.entrypoint.EntrypointManager;
 import engine.strata.core.io.FolderManager;
 import engine.strata.server.StrataServer;
-import engine.strata.util.Identifier;
 import engine.strata.util.StrataPaths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,13 +39,13 @@ public class StrataLauncher {
 
         ModLoader.loadMods();
 
-        EntrypointManager.invoke(ModInitializer.class, ModInitializer::onInitialize);
+        EntrypointManager.invoke("common", ModInitializer.class, ModInitializer::onInitialize);
 
         if (isServer) {
             launchServer();
         } else {
             // 3. Initialize Client Logic
-            EntrypointManager.invoke(ClientModInitializer.class, ClientModInitializer::onClientInitialize);
+            EntrypointManager.invoke("client", ClientModInitializer.class, ClientModInitializer::onClientInitialize);
             launchClient();
         }
     }

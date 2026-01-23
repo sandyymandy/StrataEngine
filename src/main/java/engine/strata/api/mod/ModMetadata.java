@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 public record ModMetadata(
-        String id,
+        String namespace,
         String name,
         String version,
         String api_version,

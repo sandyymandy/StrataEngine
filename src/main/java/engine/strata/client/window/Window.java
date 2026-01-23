@@ -1,9 +1,9 @@
 package engine.strata.client.window;
 
 import engine.strata.client.StrataClient;
+import engine.strata.client.input.InputSystem;
 import org.lwjgl.glfw.GLFWVidMode;
 import org.lwjgl.opengl.GL;
-
 
 import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.opengl.GL11.*;
@@ -13,6 +13,7 @@ public class Window {
 
     private final long handle;
     private final WindowConfig config;
+    private int width, height;
 
     public Window(WindowConfig config) {
         this.config = config;
@@ -23,12 +24,12 @@ public class Window {
 
         glfwDefaultWindowHints();
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-//        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 
         this.handle = glfwCreateWindow(
                 config.width,
@@ -42,14 +43,24 @@ public class Window {
             throw new IllegalStateException("Failed to create GLFW window");
         }
 
+        this.width = config.width;
+        this.height = config.height;
+
+        glfwSetWindowSizeCallback(handle, (window, width, height) -> {
+            this.width = width;
+            this.height = height;
+        });
+
+        glfwSetKeyCallback(handle, ((window, key, scancode, action, mods) -> {
+            InputSystem.handleKeyEvent(key, action);
+        }));
+
         glfwSetWindowPos(handle, config.x, config.y);
         glfwMakeContextCurrent(handle);
         glfwShowWindow(handle);
         GL.createCapabilities();
         StrataClient.LOGGER.info("OpenGL: " + glGetString(GL_VERSION));
         StrataClient.LOGGER.info("GLSL: " + glGetString(GL_SHADING_LANGUAGE_VERSION));
-
-        glClearColor(0.39f, 0.58f, 0.92f, 1.0f);
 
         applyMode(config.mode);
     }
@@ -60,6 +71,14 @@ public class Window {
 
     public WindowConfig getConfig() {
         return config;
+    }
+
+    public int getHeight() {
+        return height;
+    }
+
+    public int getWidth() {
+        return width;
     }
 
     /* =========================
@@ -184,13 +203,15 @@ public class Window {
 
     public double getMouseX() {
         double[] x = new double[1];
-        glfwGetCursorPos(handle, x, null);
+        double[] y = new double[1];
+        org.lwjgl.glfw.GLFW.glfwGetCursorPos(handle, x, y);
         return x[0];
     }
 
     public double getMouseY() {
+        double[] x = new double[1];
         double[] y = new double[1];
-        glfwGetCursorPos(handle, null, y);
+        org.lwjgl.glfw.GLFW.glfwGetCursorPos(handle, x, y);
         return y[0];
     }
 }

@@ -125,6 +125,6 @@ public final class Identifier implements Comparable<Identifier> {
     }
 
     public String toAssetPath(String folder, String extension) {
-        return "/assets/" + namespace + "/" + folder + "/" + path + extension;
+        return "assets/" + namespace + "/" + folder + "/" + path + "." + extension;
     }
 }

@@ -6,7 +6,7 @@ import org.lwjgl.glfw.GLFW;
 public class Keybinds {
     public static final Keybind HIDE_CURSOR = new Keybind(
             Identifier.of("strata", "hide_cursor"),
-            GLFW.GLFW_KEY_F
+            GLFW.GLFW_KEY_ESCAPE
     );
 
     public static final Keybind FORWARDS = new Keybind(

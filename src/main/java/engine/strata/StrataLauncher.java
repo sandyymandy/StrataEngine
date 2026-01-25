@@ -53,7 +53,6 @@ public class StrataLauncher {
     private static void launchClient() {
         // Here we could use Reflection to load a specific ClientEntrypoint class
         StrataClient client = new StrataClient();
-        client.init();
         client.run(); // This starts your game loop
     }
 

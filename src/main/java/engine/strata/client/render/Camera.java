@@ -1,102 +1,122 @@
 package engine.strata.client.render;
 
-import engine.helios.RenderSystem;
-import engine.strata.client.input.keybind.Keybind;
-import engine.strata.client.input.keybind.Keybinds;
+import engine.strata.entity.Entity;
+import engine.strata.entity.PlayerEntity;
+import engine.strata.util.math.Vec3d;
+import org.joml.*;
 import engine.strata.client.window.Window;
-import org.joml.Matrix4f;
-import org.joml.Vector3f;
-import org.lwjgl.glfw.GLFW;
+
+import java.lang.Math;
 
 public class Camera {
-    private final Vector3f position = new Vector3f(0, 0, 0);
-    private float pitch = 0;
-    private float yaw = -90f;
+    private final Vector3d pos = new Vector3d();
+    private final Quaternionf rotation = new Quaternionf();
+    private float fov;
+    private float Z_NEAR;
+    private float Z_FAR;
+    private float pitch;
+    private float yaw;
+    private final Vector3d prevPos = new Vector3d();
+    private float prevPitch;
+    private float prevYaw;
+    private Entity focusedEntity;
+    private float cameraY;
+    private float lastCameraY;
 
-    // Mouse tracking variables
-    private double lastMouseX, lastMouseY;
-    private boolean firstMouse = true;
-    private float sensitivity = 0.15f; // Reduced for smoother control
+    //Planes for ClipSpace
+    private final Vector3f horizontalPlane = new Vector3f(0, 0, -1);
+    private final Vector3f verticalPlane = new Vector3f(0, 1, 0);
 
-    // Matrices
     private final Matrix4f viewMatrix = new Matrix4f();
     private final Matrix4f projectionMatrix = new Matrix4f();
 
-    public void move(Window window) {
-        handleKeyboard(window);
-        handleMouse(window);
+    public Camera(){
+        this.fov = 90;
+        this.Z_NEAR = 0.01f;
+        this.Z_FAR = 1000.0f;
+    }
 
-        // Update matrices every frame
+    /**
+     * Updates the camera based on an entity (the Player).
+     * @param partialTick The progress between game ticks (0.0 to 1.0)
+     */
+    public void update(Entity focusedEntity, Window window, float partialTick, boolean thirdPerson) {
+        this.focusedEntity = focusedEntity;
+
+        double x = lerp(partialTick, focusedEntity.prevX, focusedEntity.getPosX());
+        double y = lerp(partialTick, focusedEntity.prevY, focusedEntity.getPosY()) + focusedEntity.getEyeHeight();
+        double z = lerp(partialTick, focusedEntity.prevZ, focusedEntity.getPosZ());
+
+        this.setRotation(focusedEntity.getYaw(), focusedEntity.getPitch());
+        this.setPos((float)x, (float)y, (float)z);
+
+        if (thirdPerson) {
+            // Move camera backwards, but check for wall collisions
+            float distance = 4.0f;
+            float clippedDist = clipToSpace(distance);
+            this.moveBy(-clippedDist, 0, 0);
+        }
+
         updateMatrices(window);
+
+        // Store current as previous for next frame
+        this.prevYaw = focusedEntity.getYaw();
+        this.prevPitch = focusedEntity.getPitch();
+        this.prevPos.set(this.pos);
+        ((PlayerEntity)focusedEntity).handleMouse();
     }
 
-    private void handleKeyboard(Window window) {
-        long handle = window.getHandle();
-        float speed = 0.002f;
-
-        // Calculate forward/right vectors based on yaw so we move where we look
-        float dx = (float) (Math.sin(Math.toRadians(yaw)) * speed);
-        float dz = (float) (Math.cos(Math.toRadians(yaw)) * speed);
-
-        if (Keybinds.FORWARDS.isActive()) {
-            position.x += dz;
-            position.z += dx;
+    public void updateEyeHeight() {
+        if (this.focusedEntity != null) {
+            this.lastCameraY = this.cameraY;
+            this.cameraY = this.cameraY + (this.focusedEntity.getEyeHeight() - this.cameraY) * 0.5F;
         }
-        if (Keybinds.BACKWARDS.isActive()) {
-            position.x -= dz;
-            position.z -= dx;
-        }
-        if (Keybinds.LEFT.isActive()) {
-            position.x += dx;
-            position.z -= dz;
-        }
-        if (Keybinds.RIGHT.isActive()) {
-            position.x -= dx;
-            position.z += dz;
-        }
-
-        // Vertical movement remains global (standard for flight/creative cams)
-        if (Keybinds.DOWN.isActive()) position.y -= speed;
-        if (Keybinds.UP.isActive()) position.y += speed;
     }
 
-    private void handleMouse(Window window) {
-        double x = window.getMouseX();
-        double y = window.getMouseY();
+    private void setRotation(float yaw, float pitch) {
+        this.yaw = yaw;
+        this.pitch = pitch;
 
-        if (firstMouse) {
-            lastMouseX = x;
-            lastMouseY = y;
-            firstMouse = false;
-        }
+        // Re-calculate the planes for clipping and movement
+        new Vector3f(0, 0, -1).rotate(this.rotation, horizontalPlane);
+        new Vector3f(0, 1, 0).rotate(this.rotation, verticalPlane);
+    }
 
-        float offsetX = (float) (x - lastMouseX);
-        float offsetY = (float) (lastMouseY - y);
-        lastMouseX = x;
-        lastMouseY = y;
+    private float clipToSpace(float distance) {
 
-        yaw += offsetX * sensitivity;
-        pitch -= offsetY * sensitivity; // Adjusted sign for standard feel
+        // Calculate cam collition
+        float f = distance;
 
-        if (pitch > 89.0f) pitch = 89.0f;
-        if (pitch < -89.0f) pitch = -89.0f;
+        // Example logic:
+        // RayResult hit = world.raycast(this.pos, horizontalPlane.negate(), distance);
+        // if (hit.type != MISS) return hit.distance;
+
+        return f;
+    }
+
+    protected void moveBy(float x, float y, float z) {
+        Vector3d offset = new Vector3d(z, y, -x).rotate((Quaterniondc) this.rotation);
+        this.pos.add(offset);
     }
 
     private void updateMatrices(Window window) {
         // 1. Projection Matrix (Perspective)
-        float fov = (float) Math.toRadians(70.0f);
+        float fov = (float) Math.toRadians(this.fov);
         float aspectRatio = (float) window.getWidth() / window.getHeight();
-        projectionMatrix.setPerspective(fov, aspectRatio, 0.01f, 1000.0f);
+        projectionMatrix.setPerspective(fov, aspectRatio, Z_NEAR, Z_FAR);
 
-        // 2. View Matrix (The "Camera" transform)
-        // We rotate the world the opposite way of the camera
+        // View Matrix
         viewMatrix.identity()
                 .rotate((float) Math.toRadians(pitch), 1, 0, 0)
-                .rotate((float) Math.toRadians(yaw + 90), 0, 1, 0) // +90 to align forward with -Z
-                .translate(-position.x, -position.y, -position.z);
+                .rotate((float) Math.toRadians(yaw + 90), 0, 1, 0)
+                .translate((float) -pos.x(), (float) -pos.y(), (float) -pos.z());
     }
 
+    private double lerp(double pct, double start, double end) {
+        return start + pct * (end - start);
+    }
+
+    public void setPos(float x, float y, float z) { this.pos.set(x, y, z); }
     public Matrix4f getViewMatrix() { return viewMatrix; }
     public Matrix4f getProjectionMatrix() { return projectionMatrix; }
-    public Vector3f getPosition() { return position; }
 }

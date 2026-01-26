@@ -3,12 +3,17 @@ package engine.strata.entity;
 import engine.strata.client.StrataClient;
 import engine.strata.client.input.keybind.Keybinds;
 import engine.strata.client.window.Window;
+import engine.strata.world.World;
 
 public class PlayerEntity extends Entity {
     private float speed = 0.25f;
     private boolean firstMouse = true;
     private double lastMouseX, lastMouseY;
     private float sensitivity = 0.15f;
+
+    public PlayerEntity(EntityKey<?> key, World world) {
+        super(key, world);
+    }
 
     @Override
     public void tick() {
@@ -46,20 +51,20 @@ public class PlayerEntity extends Entity {
         float cos = (float) Math.cos(radYaw);
 
         if (Keybinds.RIGHT.isActive()) {
-            this.setPosX(this.getPosX() - sin * speed);
-            this.setPosZ(this.getPosZ() + cos * speed);
+            this.setPosX(this.getX() - sin * speed);
+            this.setPosZ(this.getZ() + cos * speed);
         }
         if (Keybinds.LEFT.isActive()) {
-            this.setPosX(this.getPosX() + sin * speed);
-            this.setPosZ(this.getPosZ() - cos * speed);
+            this.setPosX(this.getX() + sin * speed);
+            this.setPosZ(this.getZ() - cos * speed);
         }
         if (Keybinds.FORWARDS.isActive()) {
-            this.setPosX(this.getPosX() + cos * speed);
-            this.setPosZ(this.getPosZ() + sin * speed);
+            this.setPosX(this.getX() + cos * speed);
+            this.setPosZ(this.getZ() + sin * speed);
         }
         if (Keybinds.BACKWARDS.isActive()) {
-            this.setPosX(this.getPosX() - cos * speed);
-            this.setPosZ(this.getPosZ() - sin * speed);
+            this.setPosX(this.getX() - cos * speed);
+            this.setPosZ(this.getZ() - sin * speed);
         }
     }
 }

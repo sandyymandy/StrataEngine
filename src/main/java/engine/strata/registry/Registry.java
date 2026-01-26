@@ -1,28 +1,21 @@
 package engine.strata.registry;
 
+import engine.strata.util.Identifier;
 import java.util.HashMap;
 import java.util.Map;
 
 public class Registry<T> {
-    private final Map<String, T> entries = new HashMap<>();
-    private final String name;
+    private final Map<Identifier, T> entries = new HashMap<>();
 
-    public Registry(String name) {
-        this.name = name;
+    /**
+     * The static entry point for all registrations.
+     */
+    public static <V, T extends V> T register(Registry<V> registry, Identifier id, T entry) {
+        registry.entries.put(id, entry);
+        return entry;
     }
 
-    public void register(String id, T value) {
-        if (entries.containsKey(id)) {
-            System.err.println("Warning: Overwriting registry entry: " + id);
-        }
-        entries.put(id, value);
-    }
-
-    public T get(String id) {
+    public T get(Identifier id) {
         return entries.get(id);
-    }
-
-    public Map<String, T> getAll() {
-        return entries;
     }
 }

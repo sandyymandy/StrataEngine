@@ -5,22 +5,22 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class ShaderManager {
-    private static final Map<String, Shader> SHADERS = new HashMap<>();
-    private static Shader currentShader;
+    private static final Map<Identifier, ShaderStack> SHADERS = new HashMap<>();
+    private static ShaderStack currentShaderStack;
 
-    public static void register(String name, Identifier vert, Identifier frag) {
-        SHADERS.put(name, new Shader(vert, frag));
+    public static void register(Identifier id, Identifier vert, Identifier frag) {
+        SHADERS.put(id, new ShaderStack(vert, frag));
     }
 
-    public static void use(String name) {
-        Shader s = SHADERS.get(name);
-        if (s != null && s != currentShader) {
+    public static void use(Identifier id) {
+        ShaderStack s = SHADERS.get(id);
+        if (s != null && s != currentShaderStack) {
             s.use();
-            currentShader = s;
+            currentShaderStack = s;
         }
     }
 
-    public static Shader getCurrent() {
-        return currentShader;
+    public static ShaderStack getCurrent() {
+        return currentShaderStack;
     }
 }

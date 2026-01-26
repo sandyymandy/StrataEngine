@@ -1,10 +1,37 @@
 package engine.helios;
 
+import org.jetbrains.annotations.Nullable;
+
 import static org.lwjgl.opengl.GL11.*;
 
 public class RenderSystem {
+    @Nullable
+    private static Thread renderThread;
     private static int currentTexture = -1;
     private static boolean depthTest = false;
+    private static boolean blending = false;
+
+    public static void initRenderThread() {
+        if (renderThread != null) {
+            throw new IllegalStateException("Could not initialize render thread");
+        } else {
+            renderThread = Thread.currentThread();
+        }
+    }
+
+    public static boolean isOnRenderThread() {
+        return Thread.currentThread() == renderThread;
+    }
+
+    public static void assertOnRenderThread() {
+        if (!isOnRenderThread()) {
+            throw constructThreadException();
+        }
+    }
+
+    private static IllegalStateException constructThreadException() {
+        return new IllegalStateException("Rendersystem called from wrong thread");
+    }
 
     public static void enableDepthTest() {
         if (!depthTest) {
@@ -20,6 +47,10 @@ public class RenderSystem {
         }
     }
 
+    public static void bindTexture(Texture texture) {
+        bindTexture(texture.getId());
+    }
+
     public static void bindTexture(int textureId) {
         if (currentTexture != textureId) {
             glBindTexture(GL_TEXTURE_2D, textureId);
@@ -30,5 +61,20 @@ public class RenderSystem {
     public static void clear(float r, float g, float b, float a) {
         glClearColor(r, g, b, a);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    }
+
+    public static void enableBlend() {
+        if (!blending) {
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            blending = true;
+        }
+    }
+
+    public static void disableBlend() {
+        if (blending) {
+            glDisable(GL_BLEND);
+            blending = false;
+        }
     }
 }

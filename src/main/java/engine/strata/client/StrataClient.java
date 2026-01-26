@@ -1,14 +1,20 @@
 package engine.strata.client;
 
-import engine.helios.*;
+import engine.helios.RenderSystem;
+import engine.helios.ShaderManager;
 import engine.strata.client.input.InputSystem;
 import engine.strata.client.input.keybind.Keybinds;
 import engine.strata.client.render.renderer.MasterRenderer;
+import engine.strata.client.render.renderer.entity.ZombieEntityRenderer;
+import engine.strata.client.render.renderer.entity.util.EntityRendererRegistry;
 import engine.strata.client.window.Window;
 import engine.strata.client.window.WindowConfig;
 import engine.strata.entity.Entity;
 import engine.strata.entity.PlayerEntity;
+import engine.strata.entity.ZombieEntity;
+import engine.strata.registry.registries.EntityRegistry;
 import engine.strata.util.Identifier;
+import engine.strata.world.World;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,8 +23,8 @@ import static org.lwjgl.opengl.GL11.*;
 
 public class StrataClient {
     static StrataClient instance;
-    private Window window;
-    private final MatrixStack poseStack;
+    private final Window window;
+    private final World world;
     private final PlayerEntity player;
     private final MasterRenderer masterRenderer;
     private boolean running = true;
@@ -27,26 +33,43 @@ public class StrataClient {
 
     private static final double TICKS_PER_SECOND = 20.0;
     private static final double TIME_PER_TICK = 1.0 / TICKS_PER_SECOND;
+    private volatile float partialTicks = 0.0f;
 
     public StrataClient() {
         instance = this;
         LOGGER.info("Initializing Client");
 
-        // 1. Setup Window
+        // 1. Setup Window and World
         this.window = new Window(new WindowConfig(1280, 720, "StrataEngine"));
-        this.poseStack = new MatrixStack();
-        this.player = new PlayerEntity();
+        this.world = new World();
+        this.player = EntityRegistry.PLAYER.create(world);
         this.masterRenderer = new MasterRenderer(this);
 
-        // 2. Initialize Helios Shaders
+        // 2. Initialize Client and Helios
+        init();
         initHelios();
+    }
+
+    private void init() {
+        // Register entity renderers
+        EntityRendererRegistry.register(EntityRegistry.ZOMBIE, ZombieEntityRenderer::new);
+
+        // Add player to world
+        world.addEntity(player);
+
+        // Spawn some test zombies
+        for (int i = 0; i < 5; i++) {
+            ZombieEntity zombie = EntityRegistry.ZOMBIE.create(world);
+            zombie.setPos(i * 2, 0, -5);
+            world.addEntity(zombie);
+        }
     }
 
     private void initHelios() {
         // Register core shaders using the Helios ShaderManager
-        ShaderManager.register("generic_3d",
-                Identifier.of("strata", "vertex"),
-                Identifier.of("strata", "fragment")
+        ShaderManager.register(Identifier.ofEngine("generic_3d"),
+                Identifier.ofEngine("vertex"),
+                Identifier.ofEngine("fragment")
         );
 
         glEnable(GL_CULL_FACE);
@@ -54,16 +77,29 @@ public class StrataClient {
         glEnable(GL_DEPTH_TEST);
     }
 
+    public void start() {
+        // Initialize OpenGL context on Main Thread
+        RenderSystem.initRenderThread();
+
+        // Spawn Logic Thread
+        Thread logicThread = new Thread(this::runLogic, "Logic-Thread");
+        logicThread.start();
+
+        Thread.currentThread().setName("Render-Thread");
+        // Run Render Loop on Main Thread
+        runRender();
+    }
+
     /**
-     * The Main Game Loop (Accumulator Pattern)
+     * Logic Thread
      */
-    public void run() {
+
+    public void runLogic() {
         long lastTime = System.nanoTime();
         double accumulator = 0.0;
 
         while (running && !window.shouldClose()) {
             long now = System.nanoTime();
-            // Convert nanoseconds to seconds
             double deltaTime = (now - lastTime) / 1_000_000_000.0;
             lastTime = now;
 
@@ -75,26 +111,47 @@ public class StrataClient {
                 tick();
                 accumulator -= TIME_PER_TICK;
             }
+            this.partialTicks = (float) (accumulator / TIME_PER_TICK);
 
-            // Drawing to the back buffer
-            render((float) (accumulator / TIME_PER_TICK), (float) deltaTime);
+            // Prepare render commands AFTER ticking
+            prepareRenderCommands(this.partialTicks);
 
-            // Finalize frame By swaping the back buffer and bring it to the front
-            window.swapBuffers();
+
+            try { Thread.sleep(1); } catch (InterruptedException ignored) {}
         }
+    }
 
+    private void prepareRenderCommands(float partialTicks) {
+        // Prepare all entity renders (including player since it's in the world)
+        masterRenderer.prepareEntityRenders(world, partialTicks);
+    }
+
+    /**
+     * Render Thread
+     */
+
+    private void runRender() {
+        long lastFrameTime = System.nanoTime();
+
+        while (running && !window.shouldClose()) {
+            long now = System.nanoTime();
+            float renderDeltaTime = (float) ((now - lastFrameTime) / 1_000_000_000.0);
+            lastFrameTime = now;
+
+            masterRenderer.render(this.partialTicks, renderDeltaTime);
+
+            window.swapBuffers();
+            window.pollEvents();
+
+            if(Keybinds.HIDE_CURSOR.isCanceled()) hideCursor = !hideCursor;
+            if(hideCursor) window.lockCursor(); else window.unlockCursor();
+
+        }
         stop();
     }
 
-    private void render(float partialTicks, float deltaTime) {
-        this.masterRenderer.render(partialTicks, deltaTime);
-
-        if(Keybinds.HIDE_CURSOR.isCanceled()) hideCursor = !hideCursor;
-        if(hideCursor) window.lockCursor(); else window.unlockCursor();
-    }
-
     private void tick() {
-        player.tick();
+        world.tick();
     }
 
     private void processInput() {
@@ -118,5 +175,13 @@ public class StrataClient {
 
     public Entity getCameraEntity(){
         return player;
+    }
+
+    public MasterRenderer getMasterRenderer(){
+        return masterRenderer;
+    }
+
+    public World getWorld() {
+        return world;
     }
 }

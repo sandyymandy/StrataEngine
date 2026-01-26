@@ -9,9 +9,10 @@ public class StrataServer {
     private static final double MS_PER_TICK = 1000.0 / TICKS_PER_SECOND;
     public static final Logger LOGGER = LoggerFactory.getLogger("Server");
 
-    public void init() {
+    public void start() {
         LOGGER.info("Loading World...");
         // Load chunks, setup networking
+        run();
     }
 
     public void run() {

@@ -5,6 +5,8 @@ import org.joml.Quaternionf;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
 
+import static java.lang.Math.sqrt;
+
 public class Vec3d {
     private double x;
     private double y;
@@ -61,7 +63,7 @@ public class Vec3d {
     }
 
     public Vec3d normalize() {
-        double d = Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z);
+        double d = sqrt(this.x * this.x + this.y * this.y + this.z * this.z);
         return d < 1.0E-5F ? ZERO : new Vec3d(this.x / d, this.y / d, this.z / d);
     }
 

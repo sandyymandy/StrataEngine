@@ -9,10 +9,10 @@ out vec4 pass_color;
 
 uniform mat4 u_Projection;
 uniform mat4 u_View;
-uniform mat4 u_Model;
 
 void main() {
-    gl_Position = u_Projection * u_View * u_Model * vec4(position, 1.0);
+    gl_Position = u_Projection * u_View * vec4(position, 1.0);
+
     pass_texCoord = texCoord;
     pass_color = color;
 }

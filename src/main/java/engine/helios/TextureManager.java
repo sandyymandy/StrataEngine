@@ -10,8 +10,4 @@ public class TextureManager {
     public static Texture get(Identifier id) {
         return TEXTURES.computeIfAbsent(id, Texture::new);
     }
-
-    public static void bind(Identifier id) {
-        get(id).bind();
-    }
 }

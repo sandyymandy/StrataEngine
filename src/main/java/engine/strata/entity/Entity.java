@@ -1,12 +1,14 @@
 package engine.strata.entity;
 
 import engine.strata.util.math.Vec3d;
-import org.joml.Vector3d;
+import engine.strata.world.World;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class Entity {
     private static final Logger LOGGER = LoggerFactory.getLogger("Entity");
+    protected final EntityKey<?> key;
+    protected final World world;
     public double prevX;
     public double prevY;
     public double prevZ;
@@ -18,7 +20,9 @@ public class Entity {
     public float prevPitch;
     public float eyeHeight = 1.62f;
 
-    public Entity(){
+    public Entity(EntityKey<?> key, World world){
+        this.key = key;
+        this.world = world;
         this.pos = Vec3d.ZERO;
     }
 
@@ -31,7 +35,7 @@ public class Entity {
     }
 
     public void setPos(Vec3d pos) {
-        this.setPos(pos.getX(), pos.getY(), pos.getY());
+        this.setPos(pos.getX(), pos.getY(), pos.getZ());
     }
 
     public void setPos(double x, double y, double z) {
@@ -46,10 +50,23 @@ public class Entity {
 
 
     public Vec3d getPos() { return pos; }
-    public double getPosX() { return pos.getX(); }
-    public double getPosY() { return pos.getY(); }
-    public double getPosZ() { return pos.getZ(); }
+    public double getX() { return pos.getX(); }
+    public double getY() { return pos.getY(); }
+    public double getZ() { return pos.getZ(); }
     public float getYaw() { return yaw; }
     public float getPitch() { return pitch; }
     public float getEyeHeight() { return eyeHeight; }
+
+    public boolean isInRange(float camX, float camY, float camZ) {
+        return true;
+    }
+
+    public EntityKey<?> getKey() {
+        return this.key;
+    }
+
+    public World getWorld() {
+        return this.world;
+    }
+
 }

@@ -14,6 +14,7 @@ public class Window {
     private final long handle;
     private final WindowConfig config;
     private int width, height;
+    private String renderPhase = "";
 
     public Window(WindowConfig config) {
         this.config = config;
@@ -214,5 +215,9 @@ public class Window {
         double[] y = new double[1];
         org.lwjgl.glfw.GLFW.glfwGetCursorPos(handle, x, y);
         return y[0];
+    }
+
+    public void setRenderPhase(String renderPhase) {
+        this.renderPhase = renderPhase;
     }
 }

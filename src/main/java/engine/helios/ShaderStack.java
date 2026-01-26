@@ -9,12 +9,12 @@ import java.util.HashMap;
 import java.util.Map;
 import static org.lwjgl.opengl.GL20.*;
 
-public class Shader {
+public class ShaderStack {
     private final int programId;
     private final Map<String, Integer> uniformLocations = new HashMap<>();
     private static final FloatBuffer matrixBuffer = BufferUtils.createFloatBuffer(16);
 
-    public Shader(Identifier vertexId, Identifier fragmentId) {
+    public ShaderStack(Identifier vertexId, Identifier fragmentId) {
         String vertSrc = ResourceManager.loadAsString(vertexId, "shaders", "glsl");
         String fragSrc = ResourceManager.loadAsString(fragmentId, "shaders", "glsl");
 

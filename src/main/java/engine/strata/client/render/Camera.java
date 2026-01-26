@@ -2,7 +2,6 @@ package engine.strata.client.render;
 
 import engine.strata.entity.Entity;
 import engine.strata.entity.PlayerEntity;
-import engine.strata.util.math.Vec3d;
 import org.joml.*;
 import engine.strata.client.window.Window;
 
@@ -43,9 +42,9 @@ public class Camera {
     public void update(Entity focusedEntity, Window window, float partialTick, boolean thirdPerson) {
         this.focusedEntity = focusedEntity;
 
-        double x = lerp(partialTick, focusedEntity.prevX, focusedEntity.getPosX());
-        double y = lerp(partialTick, focusedEntity.prevY, focusedEntity.getPosY()) + focusedEntity.getEyeHeight();
-        double z = lerp(partialTick, focusedEntity.prevZ, focusedEntity.getPosZ());
+        double x = lerp(partialTick, focusedEntity.prevX, focusedEntity.getX());
+        double y = lerp(partialTick, focusedEntity.prevY, focusedEntity.getY()) + focusedEntity.getEyeHeight();
+        double z = lerp(partialTick, focusedEntity.prevZ, focusedEntity.getZ());
 
         this.setRotation(focusedEntity.getYaw(), focusedEntity.getPitch());
         this.setPos((float)x, (float)y, (float)z);
@@ -117,6 +116,7 @@ public class Camera {
     }
 
     public void setPos(float x, float y, float z) { this.pos.set(x, y, z); }
+    public Vector3d getPos() {return this.pos;}
     public Matrix4f getViewMatrix() { return viewMatrix; }
     public Matrix4f getProjectionMatrix() { return projectionMatrix; }
 }

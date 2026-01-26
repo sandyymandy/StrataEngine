@@ -1,0 +1,6 @@
+{
+  "id": "strata:zombie",
+  "textures": {
+    "texture": "strata:entity/texture"
+  }
+}

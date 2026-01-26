@@ -143,8 +143,8 @@ public class StrataClient {
             window.swapBuffers();
             window.pollEvents();
 
-            if(Keybinds.HIDE_CURSOR.isCanceled()) hideCursor = !hideCursor;
-            if(hideCursor) window.lockCursor(); else window.unlockCursor();
+//            if(Keybinds.HIDE_CURSOR.isCanceled()) hideCursor = !hideCursor;
+//            if(hideCursor) window.lockCursor(); else window.unlockCursor();
 
         }
         stop();

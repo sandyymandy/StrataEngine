@@ -1,13 +1,15 @@
 package engine.strata.client.render.renderer.entity;
 
+import engine.helios.BufferBuilder;
 import engine.helios.MatrixStack;
 import engine.helios.RenderLayer;
+import engine.helios.VertexFormat;
+import engine.strata.client.StrataClient;
 import engine.strata.client.render.RenderLayers;
 import engine.strata.client.render.model.ModelManager;
 import engine.strata.client.render.model.StrataModel;
 import engine.strata.client.render.renderer.entity.util.EntityRenderer;
 import engine.strata.client.render.renderer.entity.util.EntityRendererFactory;
-import engine.strata.client.render.util.rendercommand.RenderCommandQueue;
 import engine.strata.entity.PlayerEntity;
 import engine.strata.util.Identifier;
 
@@ -15,19 +17,27 @@ import java.util.Map;
 
 public class PlayerEntityRenderer extends EntityRenderer<PlayerEntity> {
     private static final Identifier MODEL_ID = Identifier.ofEngine("player");
-    private static final Identifier SKIN_ID = Identifier.ofEngine("player");
-    private final StrataModel model;
-    private final Map<String, Identifier> skin;
+    private StrataModel model;
+    private Map<String, Identifier> skin;
 
     public PlayerEntityRenderer(EntityRendererFactory.Context ctx) {
         super(ctx);
-        // Load model and skin
-        this.model = ModelManager.getModel(MODEL_ID);
-        this.skin = ModelManager.getSkin(SKIN_ID);
+        // Models will be loaded on first render to avoid GL context issues
     }
 
     @Override
-    public void render(PlayerEntity entity, float partialTicks, MatrixStack poseStack, RenderCommandQueue queue) {
+    public void render(PlayerEntity entity, float partialTicks, MatrixStack poseStack) {
+        // Lazy load model
+        if (model == null) {
+            try {
+                model = ModelManager.getModel(MODEL_ID);
+                skin = ModelManager.getSkin(MODEL_ID);
+            } catch (Exception e) {
+                // If model fails to load, just don't render
+                return;
+            }
+        }
+
         poseStack.push();
 
         // Scale the model (1/16th scale for Minecraft-style models)
@@ -36,18 +46,28 @@ public class PlayerEntityRenderer extends EntityRenderer<PlayerEntity> {
         // Apply animations
         applyAnimations(entity, model, partialTicks);
 
-        // Submit model render for each texture slot
-        for (String meshId : model.getRoot().getMeshIds()) {
+        // Get the texture and buffer
+        String textureSlot = "main"; // Default texture slot
+        if (!model.getRoot().getMeshIds().isEmpty()) {
+            String meshId = model.getRoot().getMeshIds().get(0);
             StrataModel.MeshData meshData = model.getMesh(meshId);
             if (meshData != null) {
-                String textureSlot = meshData.getTextureSlot();
-                Identifier texture = skin.getOrDefault(textureSlot, Identifier.ofEngine("missing"));
-                RenderLayer layer = RenderLayers.getEntityTexture(texture);
-
-                queue.submitModel(model, poseStack, layer, 0);
-                break; // Submit once for whole model
+                textureSlot = meshData.textureSlot();
             }
         }
+
+        Identifier texture = skin.getOrDefault(textureSlot, Identifier.ofEngine("missing"));
+        RenderLayer layer = RenderLayers.getEntityTexture(texture);
+        BufferBuilder buffer = getBuffer(layer);
+
+        // Ensure buffer is ready
+        if (!buffer.isBuilding()) {
+            buffer.begin(VertexFormat.POSITION_TEXTURE_COLOR);
+        }
+
+        // Render the model directly to the buffer
+        StrataClient.getInstance().getMasterRenderer()
+                .getModelRenderer().render(model, poseStack, buffer);
 
         poseStack.pop();
     }

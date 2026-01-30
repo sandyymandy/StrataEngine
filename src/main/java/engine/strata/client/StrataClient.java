@@ -33,7 +33,7 @@ public class StrataClient {
 
     private static final double TICKS_PER_SECOND = 20.0;
     private static final double TIME_PER_TICK = 1.0 / TICKS_PER_SECOND;
-    private volatile float partialTicks = 0.0f;
+    private float partialTicks = 0.0f;
 
     public StrataClient() {
         instance = this;
@@ -45,13 +45,13 @@ public class StrataClient {
         this.player = EntityRegistry.PLAYER.create(world);
         this.masterRenderer = new MasterRenderer(this);
 
-        // 2. Initialize Client and Helios
+        // 2. Initialize Client
         init();
-        initHelios();
     }
 
     private void init() {
         // Register entity renderers
+        EntityRendererRegistry.register(EntityRegistry.PLAYER, engine.strata.client.render.renderer.entity.PlayerEntityRenderer::new);
         EntityRendererRegistry.register(EntityRegistry.ZOMBIE, ZombieEntityRenderer::new);
 
         // Add player to world
@@ -66,7 +66,8 @@ public class StrataClient {
     }
 
     private void initHelios() {
-        // Register core shaders using the Helios ShaderManager
+        LOGGER.info("Initializing Helios");
+
         ShaderManager.register(Identifier.ofEngine("generic_3d"),
                 Identifier.ofEngine("vertex"),
                 Identifier.ofEngine("fragment")
@@ -75,28 +76,23 @@ public class StrataClient {
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
         glEnable(GL_DEPTH_TEST);
+
+        LOGGER.info("OpenGL state configured");
     }
 
     public void start() {
-        // Initialize OpenGL context on Main Thread
-        RenderSystem.initRenderThread();
 
-        // Spawn Logic Thread
-        Thread logicThread = new Thread(this::runLogic, "Logic-Thread");
-        logicThread.start();
-
-        Thread.currentThread().setName("Render-Thread");
-        // Run Render Loop on Main Thread
-        runRender();
+        initHelios();
+        run();
     }
 
     /**
-     * Logic Thread
+     * Main Game Loop
      */
-
-    public void runLogic() {
+    public void run() {
         long lastTime = System.nanoTime();
         double accumulator = 0.0;
+        long lastFrameTime = System.nanoTime();
 
         while (running && !window.shouldClose()) {
             long now = System.nanoTime();
@@ -105,57 +101,44 @@ public class StrataClient {
 
             accumulator += deltaTime;
 
+            // Process input
             processInput();
 
+            // Fixed timestep logic updates
             while (accumulator >= TIME_PER_TICK) {
                 tick();
                 accumulator -= TIME_PER_TICK;
             }
+
+            // Calculate partial ticks for smooth interpolation
             this.partialTicks = (float) (accumulator / TIME_PER_TICK);
 
-            // Prepare render commands AFTER ticking
-            prepareRenderCommands(this.partialTicks);
-
-
-            try { Thread.sleep(1); } catch (InterruptedException ignored) {}
-        }
-    }
-
-    private void prepareRenderCommands(float partialTicks) {
-        // Prepare all entity renders (including player since it's in the world)
-        masterRenderer.prepareEntityRenders(world, partialTicks);
-    }
-
-    /**
-     * Render Thread
-     */
-
-    private void runRender() {
-        long lastFrameTime = System.nanoTime();
-
-        while (running && !window.shouldClose()) {
-            long now = System.nanoTime();
+            // Calculate render delta time
             float renderDeltaTime = (float) ((now - lastFrameTime) / 1_000_000_000.0);
             lastFrameTime = now;
 
+            // Render everything
             masterRenderer.render(this.partialTicks, renderDeltaTime);
 
+            // Swap buffers and poll events
             window.swapBuffers();
             window.pollEvents();
 
-//            if(Keybinds.HIDE_CURSOR.isCanceled()) hideCursor = !hideCursor;
-//            if(hideCursor) window.lockCursor(); else window.unlockCursor();
+            // Handle cursor visibility
+            if(Keybinds.HIDE_CURSOR.isCanceled()) hideCursor = !hideCursor;
+            if(hideCursor) window.lockCursor(); else window.unlockCursor();
 
         }
+
         stop();
     }
 
     private void tick() {
+        // Tick the entire world (which ticks all entities including the player)
         world.tick();
     }
 
     private void processInput() {
-        window.pollEvents();
         InputSystem.update();
     }
 

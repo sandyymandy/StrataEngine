@@ -5,33 +5,9 @@ import org.jetbrains.annotations.Nullable;
 import static org.lwjgl.opengl.GL11.*;
 
 public class RenderSystem {
-    @Nullable
-    private static Thread renderThread;
     private static int currentTexture = -1;
     private static boolean depthTest = false;
     private static boolean blending = false;
-
-    public static void initRenderThread() {
-        if (renderThread != null) {
-            throw new IllegalStateException("Could not initialize render thread");
-        } else {
-            renderThread = Thread.currentThread();
-        }
-    }
-
-    public static boolean isOnRenderThread() {
-        return Thread.currentThread() == renderThread;
-    }
-
-    public static void assertOnRenderThread() {
-        if (!isOnRenderThread()) {
-            throw constructThreadException();
-        }
-    }
-
-    private static IllegalStateException constructThreadException() {
-        return new IllegalStateException("Rendersystem called from wrong thread");
-    }
 
     public static void enableDepthTest() {
         if (!depthTest) {

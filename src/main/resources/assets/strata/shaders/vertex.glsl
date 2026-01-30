@@ -1,18 +1,17 @@
 #version 330 core
 
-layout(location = 0) in vec3 position;
-layout(location = 1) in vec2 texCoord;
-layout(location = 2) in vec4 color;
-
-out vec2 pass_texCoord;
-out vec4 pass_color;
+layout(location = 0) in vec3 a_Position;
+layout(location = 1) in vec2 a_TexCoord;
+layout(location = 2) in vec4 a_Color;
 
 uniform mat4 u_Projection;
 uniform mat4 u_View;
 
-void main() {
-    gl_Position = u_Projection * u_View * vec4(position, 1.0);
+out vec2 v_TexCoord;
+out vec4 v_Color;
 
-    pass_texCoord = texCoord;
-    pass_color = color;
+void main() {
+    gl_Position = u_Projection * u_View * vec4(a_Position, 1.0);
+    v_TexCoord = a_TexCoord;
+    v_Color = a_Color;
 }

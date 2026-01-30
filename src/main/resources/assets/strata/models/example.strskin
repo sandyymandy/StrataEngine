@@ -1,5 +1,5 @@
 {
-  "id": "strata:zombie",
+  "id": "strata:example",
   "textures": {
     "main": "strata:entity/main"
   }

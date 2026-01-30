@@ -1,6 +1,8 @@
 package engine.strata.util;
 
-public final class Identifier implements Comparable<Identifier> {
+import java.util.Objects;
+
+public final class Identifier{
     public final String namespace;
     public final String path;
 
@@ -107,13 +109,17 @@ public final class Identifier implements Comparable<Identifier> {
 
 
     @Override
-    public int compareTo(Identifier identifier) {
-        int i = this.path.compareTo(identifier.path);
-        if (i == 0) {
-            i = this.namespace.compareTo(identifier.namespace);
-        }
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Identifier that = (Identifier) o;
+        return Objects.equals(namespace, that.namespace) &&
+                Objects.equals(path, that.path);
+    }
 
-        return i;
+    @Override
+    public int hashCode() {
+        return Objects.hash(namespace, path);
     }
 
     public String toString() {

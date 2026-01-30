@@ -66,5 +66,11 @@ public class PlayerEntity extends Entity {
             this.setPosX(this.getX() - cos * speed);
             this.setPosZ(this.getZ() - sin * speed);
         }
+        if (Keybinds.UP.isActive()) {
+            this.setPosY(this.getY() + speed);
+        }
+        if (Keybinds.DOWN.isActive()) {
+            this.setPosY(this.getY() - speed);
+        }
     }
 }

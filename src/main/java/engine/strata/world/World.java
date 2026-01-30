@@ -15,7 +15,6 @@ public class World {
     // Use ConcurrentHashMap for thread-safe access
     private final ConcurrentHashMap<UUID, Entity> entities = new ConcurrentHashMap<>();
 
-    // Cached list for iteration (updated after modifications)
     private volatile List<Entity> entityList = new ArrayList<>();
 
     public World() {

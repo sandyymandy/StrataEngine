@@ -89,29 +89,10 @@ public class StrataModel {
     }
 
     /**
-     * Mesh data loaded from the JSON file.
-     */
-    public static class MeshData {
-        private final String type;
-        private final String textureSlot;
-        private final Vector3f origin;
-        private final Map<String, Vector3f> vertices;
-        private final Map<String, Face> faces;
-
-        public MeshData(String type, String textureSlot, Vector3f origin,
-                        Map<String, Vector3f> vertices, Map<String, Face> faces) {
-            this.type = type;
-            this.textureSlot = textureSlot;
-            this.origin = origin;
-            this.vertices = vertices;
-            this.faces = faces;
-        }
-
-        public String getType() { return type; }
-        public String getTextureSlot() { return textureSlot; }
-        public Vector3f getOrigin() { return origin; }
-        public Map<String, Vector3f> getVertices() { return vertices; }
-        public Map<String, Face> getFaces() { return faces; }
+         * Mesh data loaded from the JSON file.
+         */
+        public record MeshData(String type, String textureSlot, Vector3f origin, Map<String, Vector3f> vertices,
+                               Map<String, Face> faces) {
     }
 
     /**

@@ -12,12 +12,16 @@ public class ShaderManager {
         SHADERS.put(id, new ShaderStack(vert, frag));
     }
 
-    public static void use(Identifier id) {
+    public static ShaderStack use(Identifier id) {
         ShaderStack s = SHADERS.get(id);
-        if (s != null && s != currentShaderStack) {
-            s.use();
-            currentShaderStack = s;
+        if (s != null) {
+            if (s != currentShaderStack) {
+                s.use();
+                currentShaderStack = s;
+            }
+            return s;
         }
+        return null;
     }
 
     public static ShaderStack getCurrent() {

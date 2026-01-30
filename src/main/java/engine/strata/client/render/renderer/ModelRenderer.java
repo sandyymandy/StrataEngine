@@ -103,8 +103,11 @@ public class ModelRenderer {
      * Renders a single mesh by triangulating faces and streaming to the buffer.
      */
     private void renderMesh(StrataModel.MeshData mesh, Matrix4f matrix, BufferBuilder builder) {
-        Map<String, Vector3f> vertices = mesh.getVertices();
-        Map<String, StrataModel.Face> faces = mesh.getFaces();
+        Vector3f pivot = mesh.origin();
+        Map<String, Vector3f> vertices = mesh.vertices();
+        Map<String, StrataModel.Face> faces = mesh.faces();
+
+        matrix.translate(pivot.x,pivot.y,pivot.z);
 
         // Process each face
         for (StrataModel.Face face : faces.values()) {
@@ -117,10 +120,11 @@ public class ModelRenderer {
                 renderTriangle(vertices, uvs, vertexIds.get(0), vertexIds.get(1), vertexIds.get(2), matrix, builder);
             } else if (vertexIds.size() == 4) {
                 // Quad - split into two triangles
-                renderTriangle(vertices, uvs, vertexIds.get(0), vertexIds.get(1), vertexIds.get(2), matrix, builder);
-                renderTriangle(vertices, uvs, vertexIds.get(2), vertexIds.get(3), vertexIds.get(0), matrix, builder);
+                renderQuad(vertices, uvs, vertexIds.get(0), vertexIds.get(1), vertexIds.get(2), vertexIds.get(3), matrix, builder);
             }
         }
+
+        matrix.translate(-pivot.x,-pivot.y,-pivot.z);
     }
 
     /**
@@ -160,5 +164,16 @@ public class ModelRenderer {
                 .tex(uv3[0], uv3[1])
                 .color(1, 1, 1, 1)
                 .next();
+    }
+
+    private void renderQuad(Map<String, Vector3f> vertices, Map<String, float[]> uvs,
+                            String v1Id, String v2Id, String v3Id, String v4Id,
+                            Matrix4f matrix, BufferBuilder builder) {
+
+        // Triangle 1: V1 -> V2 -> V3
+        renderTriangle(vertices, uvs, v1Id, v2Id, v3Id, matrix, builder);
+
+        // Triangle 2: V3 -> V4 -> V1
+        renderTriangle(vertices, uvs, v3Id, v4Id, v1Id, matrix, builder);
     }
 }

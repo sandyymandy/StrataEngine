@@ -8,9 +8,8 @@
     author: 'SandyMandy',
     description: 'Format support for Strata Engine models and animations',
     icon: 'icon-format_java',
-    version: '3.1.0',
+    version: '3.2.0',
     variant: 'both',
-    
     onload() {
       
       // Helper function to get texture name from a cube face
@@ -56,82 +55,54 @@
         return foundTexture || textureRef;
       }
       
-      // Helper function to convert Blockbench cube to mesh data
-      function convertCubeToMesh(cube) {
-        const vertices = [];
-        const indices = [];
-        
-        // Get texture reference - now with validation
-        const textureRef = getElementTexture(cube);
-        
-        // Define the 8 corners of the cube
-        const from = cube.from;
-        const to = cube.to;
-        
-        const corners = [
-          [from[0], from[1], from[2]], // 0
-          [to[0],   from[1], from[2]], // 1
-          [to[0],   to[1],   from[2]], // 2
-          [from[0], to[1],   from[2]], // 3
-          [from[0], from[1], to[2]],   // 4
-          [to[0],   from[1], to[2]],   // 5
-          [to[0],   to[1],   to[2]],   // 6
-          [from[0], to[1],   to[2]]    // 7
-        ];
-        
-        // Define faces with their vertices and normals
-        const faces = [
-          { name: 'north', verts: [0, 1, 2, 3], normal: [0, 0, -1] },
-          { name: 'south', verts: [5, 4, 7, 6], normal: [0, 0, 1] },
-          { name: 'west',  verts: [4, 0, 3, 7], normal: [-1, 0, 0] },
-          { name: 'east',  verts: [1, 5, 6, 2], normal: [1, 0, 0] },
-          { name: 'down',  verts: [4, 5, 1, 0], normal: [0, -1, 0] },
-          { name: 'up',    verts: [3, 2, 6, 7], normal: [0, 1, 0] }
-        ];
-        
-        let vertexIndex = 0;
-        
-        faces.forEach(face => {
-          const faceData = cube.faces[face.name];
-          let uv = [0, 0, 16, 16];
-          
-          if (faceData && faceData.uv) {
-            uv = faceData.uv;
+    // Helper function to convert Blockbench cube to raw cuboid data
+    function exportCubeData(cube) {
+      // Get texture reference - validates consistency across faces
+      const textureRef = getElementTexture(cube);
+
+      const faces = {};
+
+      // Export only the faces that exist and have a texture
+      for (let faceName of ['north', 'south', 'east', 'west', 'up', 'down']) {
+        const faceData = cube.faces[faceName];
+        if (faceData && faceData.texture !== null) {
+
+          // Create the basic face object with UVs
+          const faceObj = {
+            uv: faceData.uv || [0, 0, 16, 16]
+          };
+
+          // Only add rotation if it exists and is not 0
+          if (faceData.rotation) {
+            faceObj.rotation = faceData.rotation;
           }
-          
-          // Calculate UV coordinates
-          const uvCoords = [
-            [uv[0] / 64, uv[1] / 64],
-            [uv[2] / 64, uv[1] / 64],
-            [uv[2] / 64, uv[3] / 64],
-            [uv[0] / 64, uv[3] / 64]
-          ];
-          
-          // Add vertices for this face
-          face.verts.forEach((cornerIdx, i) => {
-            vertices.push({
-              pos: corners[cornerIdx],
-              uv: uvCoords[i],
-              normal: face.normal
-            });
-          });
-          
-          // Add indices for two triangles
-          const baseIdx = vertexIndex;
-          indices.push(baseIdx, baseIdx + 1, baseIdx + 2);
-          indices.push(baseIdx, baseIdx + 2, baseIdx + 3);
-          
-          vertexIndex += 4;
-        });
-        
-        return {
-          texture: textureRef,
-          origin: [cube.origin[0], cube.origin[1], cube.origin[2]],
-          vertices: vertices,
-          indices: indices
-        };
+
+          faces[faceName] = faceObj;
+        }
       }
-      
+
+      const properties = {
+          type: 'blockbench_cuboid',
+          texture: textureRef,
+          origin: [cube.origin[0], cube.origin[1], cube.origin[2]]
+      };
+
+      // Add element rotation only if X, Y, or Z is not zero
+      if (cube.rotation && (cube.rotation[0] !== 0 || cube.rotation[1] !== 0 || cube.rotation[2] !== 0)) {
+        properties.rotation = [cube.rotation[0], cube.rotation[1], cube.rotation[2]];
+      }
+
+      properties.from = [cube.from[0], cube.from[1], cube.from[2]]
+      properties.to = [cube.to[0], cube.to[1], cube.to[2]]
+
+      if (cube.inflate) {
+          properties.inflate = cube.inflate;
+      }
+
+      properties.faces = faces
+
+      return properties;
+    }
       // Store mesh in Blockbench's native format
       function exportMeshData(mesh) {
         // Get texture reference from the mesh's faces - validate consistency
@@ -188,113 +159,112 @@
             }
           }
         }
-        
-        return {
+
+        const properties = {
           type: 'blockbench_mesh',
           texture: textureRef,
-          origin: [mesh.origin[0], mesh.origin[1], mesh.origin[2]],
-          vertices: verticesCopy,
-          faces: facesCopy
+          origin: [mesh.origin[0], mesh.origin[1], mesh.origin[2]]
         };
+
+        // Add element rotation only if X, Y, or Z is not zero
+        if (mesh.rotation && (mesh.rotation[0] !== 0 || mesh.rotation[1] !== 0 || mesh.rotation[2] !== 0)) {
+          properties.rotation = [mesh.rotation[0], mesh.rotation[1], mesh.rotation[2]];
+        }
+
+        properties.vertices = verticesCopy
+        properties.faces = facesCopy
+
+        return properties;
       }
       
-      // Create Blockbench mesh from stored data
-      function createBlockbenchMesh(meshData, parent) {
-        // If it's a cube-based mesh (old format), convert it
-        if (meshData.type !== 'blockbench_mesh' && meshData.vertices && Array.isArray(meshData.vertices)) {
-          return createBlockbenchMeshFromLegacy(meshData, parent);
-        }
-        
-        // Use Blockbench's native mesh data
-        const mesh = new Mesh({
-          name: 'imported_mesh',
-          vertices: {},
-          faces: {}
-        });
-        
-        // Set origin if available
-        if (meshData.origin) {
-          mesh.origin = meshData.origin;
-        }
-        
-        // Copy vertices first
-        if (meshData.vertices) {
-          for (let key in meshData.vertices) {
-            mesh.vertices[key] = meshData.vertices[key];
+      // Create Blockbench element (Cube or Mesh) from stored data
+        function createBlockbenchMesh(meshData, parent, name) {
+
+          // --- Handle Cuboid Import ---
+          if (meshData.type === 'blockbench_cuboid') {
+            const cube = new Cube({
+              name: name || 'imported_cube',
+              origin: meshData.origin,
+              from: meshData.from,
+              to: meshData.to,
+              rotation: meshData.rotation || [0, 0, 0],
+              inflate: meshData.inflate || 0,
+              autouv: 0 // Disable Auto-UV to keep our imported mapping
+            });
+
+            // Resolve texture by name
+            let textureUuid = null;
+            if (meshData.texture) {
+              const tex = Texture.all.find(t => t.name === meshData.texture);
+              if (tex) {
+                textureUuid = tex.uuid;
+              }
+            }
+
+            // Apply faces
+            for (let key in cube.faces) {
+              if (meshData.faces && meshData.faces[key]) {
+                const savedFace = meshData.faces[key];
+                cube.faces[key].extend({
+                    uv: savedFace.uv,
+                    texture: textureUuid,
+                    rotation: savedFace.rotation || 0
+                });
+              } else {
+                // If face was not in the export, clear its texture (hide it)
+                cube.faces[key].texture = null;
+              }
+            }
+
+            cube.init();
+            cube.addTo(parent);
+            return cube;
           }
-        }
-        
-        // Then recreate faces
-        if (meshData.faces) {
-          for (let faceKey in meshData.faces) {
-            const faceData = meshData.faces[faceKey];
-            const face = new MeshFace(mesh, faceData);
-            mesh.faces[faceKey] = face;
-          }
-        }
-        
-        mesh.init();
-        mesh.addTo(parent);
-        return mesh;
-      }
-      
-      // Fallback for legacy format
-      function createBlockbenchMeshFromLegacy(meshData, parent) {
-        if (meshData.vertices && meshData.vertices.length > 0) {
+
+          // --- Handle Mesh Import ---
+
+          // Use Blockbench's native mesh data
           const mesh = new Mesh({
-            name: 'imported_mesh',
+            name: name || 'imported_mesh',
             vertices: {},
-            faces: {}
+            faces: {},
+            // FIX: Pass rotation to Mesh constructor
+            rotation: meshData.rotation || [0, 0, 0]
           });
-          
+
           // Set origin if available
           if (meshData.origin) {
             mesh.origin = meshData.origin;
           }
-          
-          const indexToKeyMap = [];
-          
-          meshData.vertices.forEach(vertexData => {
-            const keys = mesh.addVertices(vertexData.pos);
-            indexToKeyMap.push(keys[0]);
-          });
-          
-          if (meshData.indices) {
-            for (let i = 0; i < meshData.indices.length; i += 3) {
-              const idx0 = meshData.indices[i];
-              const idx1 = meshData.indices[i + 1];
-              const idx2 = meshData.indices[i + 2];
-              
-              const key0 = indexToKeyMap[idx0];
-              const key1 = indexToKeyMap[idx1];
-              const key2 = indexToKeyMap[idx2];
-              
-              if (key0 && key1 && key2) {
-                const face = new MeshFace(mesh, {
-                  vertices: [key0, key1, key2]
-                });
-                
-                const v0 = meshData.vertices[idx0];
-                const v1 = meshData.vertices[idx1];
-                const v2 = meshData.vertices[idx2];
-                
-                if (v0.uv && v1.uv && v2.uv) {
-                  face.uv = {};
-                  face.uv[key0] = [v0.uv[0] * Project.texture_width, v0.uv[1] * Project.texture_height];
-                  face.uv[key1] = [v1.uv[0] * Project.texture_width, v1.uv[1] * Project.texture_height];
-                  face.uv[key2] = [v2.uv[0] * Project.texture_width, v2.uv[1] * Project.texture_height];
-                }
-                
-                mesh.addFaces(face);
-              }
+
+          // Copy vertices
+          if (meshData.vertices) {
+            for (let key in meshData.vertices) {
+              mesh.vertices[key] = meshData.vertices[key];
             }
           }
-          
+
+          // Recreate faces
+          if (meshData.faces) {
+            for (let faceKey in meshData.faces) {
+              const faceData = meshData.faces[faceKey];
+              const face = new MeshFace(mesh, faceData);
+
+              // Resolve texture for mesh face
+              if (meshData.texture) {
+                 const tex = Texture.all.find(t => t.name === meshData.texture);
+                 if (tex) {
+                   face.texture = tex.uuid;
+                 }
+              }
+              mesh.faces[faceKey] = face;
+            }
+          }
+
           mesh.init();
           mesh.addTo(parent);
           return mesh;
         }
-      }
       
       // Prompt for model ID
       function promptForModelId(defaultNamespace = 'strata', defaultName = 'model') {
@@ -353,7 +323,7 @@
               if (child instanceof Cube) {
                 const meshName = `${group.name}_mesh_${Object.keys(meshes).length}`;
                 bone.meshes.push(meshName);
-                const meshData = convertCubeToMesh(child);
+                const meshData = exportCubeData(child);
                 meshes[meshName] = meshData;
                 
                 // Track the actual texture used by this specific mesh
@@ -425,7 +395,7 @@
                 bone.meshes.forEach(meshName => {
                   const meshData = model.meshes[meshName];
                   if (meshData) {
-                    createBlockbenchMesh(meshData, group);
+                    createBlockbenchMesh(meshData, group, meshName);
                   }
                 });
               }

@@ -1,0 +1,7 @@
+{
+  "id": "strata:mika",
+  "textures": {
+    "ellie.png": "strata:entity/ellie.png",
+    "main": "strata:entity/main"
+  }
+}

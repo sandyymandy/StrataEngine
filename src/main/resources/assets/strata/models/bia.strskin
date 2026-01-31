@@ -1,0 +1,6 @@
+{
+  "id": "strata:bia",
+  "textures": {
+    "bia.png": "strata:entity/bia.png"
+  }
+}

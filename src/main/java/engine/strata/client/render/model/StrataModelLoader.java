@@ -106,51 +106,75 @@ public class StrataModelLoader {
     }
 
     /**
-     * Parses a mesh from JSON.
+     * Parses a mesh or cuboid from JSON.
      */
     private static StrataModel.MeshData parseMesh(JsonObject meshObj) {
         String type = meshObj.get("type").getAsString();
         String textureSlot = meshObj.get("texture").getAsString();
         Vector3f origin = parseVector3f(meshObj.getAsJsonArray("origin"));
+        Vector3f rotation = meshObj.has("rotation") ? parseVector3f(meshObj.getAsJsonArray("rotation")) : new Vector3f();;
 
-        // Parse vertices
-        Map<String, Vector3f> vertices = new HashMap<>();
-        JsonObject verticesObj = meshObj.getAsJsonObject("vertices");
-        for (Map.Entry<String, JsonElement> entry : verticesObj.entrySet()) {
-            String vertId = entry.getKey();
-            Vector3f pos = parseVector3f(entry.getValue().getAsJsonArray());
-            vertices.put(vertId, pos);
-        }
+        if ("blockbench_cuboid".equals(type)) {
+            // 1. Parse Cuboid Geometry
+            Vector3f from = parseVector3f(meshObj.getAsJsonArray("from"));
+            Vector3f to = parseVector3f(meshObj.getAsJsonArray("to"));
+            float inflate = meshObj.has("inflate") ? meshObj.get("inflate").getAsFloat() : 0;
 
-        // Parse faces
-        Map<String, StrataModel.Face> faces = new HashMap<>();
-        JsonObject facesObj = meshObj.getAsJsonObject("faces");
-        for (Map.Entry<String, JsonElement> entry : facesObj.entrySet()) {
-            String faceId = entry.getKey();
-            JsonObject faceObj = entry.getValue().getAsJsonObject();
+            // 2. Parse Cuboid Faces
+            Map<String, StrataModel.CuboidFace> cuboidFaces = new HashMap<>();
+            JsonObject facesObj = meshObj.getAsJsonObject("faces");
+            if (facesObj != null) {
+                for (Map.Entry<String, JsonElement> entry : facesObj.entrySet()) {
+                    JsonObject faceObj = entry.getValue().getAsJsonObject();
+                    float[] uv = parseRawFloatArray(faceObj.getAsJsonArray("uv"));
+                    int faceRotation = faceObj.has("face_rotation") ? faceObj.get("face_rotation").getAsInt() : 0;
 
-            List<String> vertexIds = new ArrayList<>();
-            JsonArray verticesArray = faceObj.getAsJsonArray("vertices");
-            for (JsonElement elem : verticesArray) {
-                vertexIds.add(elem.getAsString());
+                    cuboidFaces.put(entry.getKey(), new StrataModel.CuboidFace(uv, faceRotation));
+                }
             }
 
-            Map<String, float[]> uvs = new HashMap<>();
-            JsonObject uvObj = faceObj.getAsJsonObject("uv");
-            for (Map.Entry<String, JsonElement> uvEntry : uvObj.entrySet()) {
-                String vertId = uvEntry.getKey();
-                JsonArray uvArray = uvEntry.getValue().getAsJsonArray();
-                float[] uv = new float[] {
-                        uvArray.get(0).getAsFloat(),
-                        uvArray.get(1).getAsFloat()
-                };
-                uvs.put(vertId, uv);
+            StrataModel.Cuboid cuboidData = new StrataModel.Cuboid(from, to, inflate, cuboidFaces);
+            return new StrataModel.MeshData(type, textureSlot, origin, rotation, null, cuboidData);
+
+        } else {
+            // Original "blockbench_mesh" parsing logic
+            Map<String, Vector3f> vertices = new HashMap<>();
+            JsonObject verticesObj = meshObj.getAsJsonObject("vertices");
+            if (verticesObj != null) {
+                for (Map.Entry<String, JsonElement> entry : verticesObj.entrySet()) {
+                    vertices.put(entry.getKey(), parseVector3f(entry.getValue().getAsJsonArray()));
+                }
             }
 
-            faces.put(faceId, new StrataModel.Face(vertexIds, uvs));
-        }
+            Map<String, StrataModel.Face> meshFaces = new HashMap<>();
+            JsonObject facesObj = meshObj.getAsJsonObject("faces");
+            if (facesObj != null) {
+                for (Map.Entry<String, JsonElement> entry : facesObj.entrySet()) {
+                    JsonObject faceObj = entry.getValue().getAsJsonObject();
+                    List<String> vertexIds = new ArrayList<>();
+                    faceObj.getAsJsonArray("vertices").forEach(e -> vertexIds.add(e.getAsString()));
 
-        return new StrataModel.MeshData(type, textureSlot, origin, vertices, faces);
+                    Map<String, float[]> uvs = new HashMap<>();
+                    JsonObject uvObj = faceObj.getAsJsonObject("uv");
+                    for (Map.Entry<String, JsonElement> uvEntry : uvObj.entrySet()) {
+                        uvs.put(uvEntry.getKey(), parseRawFloatArray(uvEntry.getValue().getAsJsonArray()));
+                    }
+                    meshFaces.put(entry.getKey(), new StrataModel.Face(vertexIds, uvs));
+                }
+            }
+
+            StrataModel.Mesh meshData = new StrataModel.Mesh(vertices, meshFaces);
+            return new StrataModel.MeshData(type, textureSlot, origin, rotation, meshData, null);
+        }
+    }
+
+    // Helper for raw float arrays (UVs, Positions, Normals)
+    private static float[] parseRawFloatArray(JsonArray array) {
+        float[] result = new float[array.size()];
+        for (int i = 0; i < array.size(); i++) {
+            result[i] = array.get(i).getAsFloat();
+        }
+        return result;
     }
 
     /**
@@ -173,37 +197,33 @@ public class StrataModelLoader {
     private static StrataModel createFallbackModel(Identifier id) {
         LOGGER.warn("Creating fallback model for: {}", id);
 
-        // Create a simple cube mesh
-        Map<String, Vector3f> vertices = new HashMap<>();
-        vertices.put("v0", new Vector3f(-0.5f, -0.5f, -0.5f));
-        vertices.put("v1", new Vector3f(0.5f, -0.5f, -0.5f));
-        vertices.put("v2", new Vector3f(0.5f, 0.5f, -0.5f));
-        vertices.put("v3", new Vector3f(-0.5f, 0.5f, -0.5f));
-        vertices.put("v4", new Vector3f(-0.5f, -0.5f, 0.5f));
-        vertices.put("v5", new Vector3f(0.5f, -0.5f, 0.5f));
-        vertices.put("v6", new Vector3f(0.5f, 0.5f, 0.5f));
-        vertices.put("v7", new Vector3f(-0.5f, 0.5f, 0.5f));
+        // 1. Define the geometric boundaries (Standard 1x1x1 block size is -8 to 8 in Blockbench)
+        Vector3f from = new Vector3f(-8, -8, -8);
+        Vector3f to = new Vector3f(8, 8, 8);
 
-        Map<String, float[]> uvs = new HashMap<>();
-        uvs.put("v0", new float[]{0, 0});
-        uvs.put("v1", new float[]{1, 0});
-        uvs.put("v2", new float[]{1, 1});
-        uvs.put("v3", new float[]{0, 1});
+        // 2. Define faces with default UVs [u1, v1, u2, v2]
+        Map<String, StrataModel.CuboidFace> faces = new HashMap<>();
+        float[] defaultUv = new float[]{0, 0, 16, 16};
 
-        Map<String, StrataModel.Face> faces = new HashMap<>();
-        // Just create one face as an example
-        faces.put("f0", new StrataModel.Face(
-                Arrays.asList("v0", "v1", "v2"), uvs
-        ));
+        faces.put("north", new StrataModel.CuboidFace(defaultUv, 0));
+        faces.put("south", new StrataModel.CuboidFace(defaultUv, 0));
+        faces.put("west",  new StrataModel.CuboidFace(defaultUv, 0));
+        faces.put("up",    new StrataModel.CuboidFace(defaultUv, 0));
+        faces.put("down",  new StrataModel.CuboidFace(defaultUv, 0));
 
+        // 3. Create the Cuboid data container
+        StrataModel.Cuboid cuboidData = new StrataModel.Cuboid(from, to, 0, faces);
+
+        // 4. Create the MeshData using the new two-variable constructor
         Map<String, StrataModel.MeshData> meshes = new HashMap<>();
-        meshes.put("fallback_mesh", new StrataModel.MeshData(
-                "blockbench_mesh", "main", new Vector3f(0, 0, 0), vertices, faces
+        meshes.put("fallback_cuboid", new StrataModel.MeshData(
+                "blockbench_cuboid", "main", new Vector3f(), new Vector3f(), null, cuboidData
         ));
 
+        // 5. Build the bone hierarchy
         StrataModel.Bone root = new StrataModel.Bone(
                 "root", null, new Vector3f(0, 0, 0),
-                new Vector3f(0, 0, 0), Collections.singletonList("fallback_mesh")
+                new Vector3f(0, 0, 0), Collections.singletonList("fallback_cuboid")
         );
 
         return new StrataModel(id, root, Collections.singletonList("main"), meshes);

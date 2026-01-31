@@ -92,10 +92,9 @@ public class MasterRenderer implements BasicRenderer {
         if (!modelLoadAttempted) {
             modelLoadAttempted = true;
             try {
-                LOGGER.info("Attempting to load zombie model...");
-                testZombieModel = ModelManager.getModel(Identifier.ofEngine("zombie"));
-                testZombieSkin = ModelManager.getSkin(Identifier.ofEngine("zombie"));
-                LOGGER.info("Successfully loaded zombie model!");
+                LOGGER.info("Attempting to load model...");
+                testZombieModel = ModelManager.getModel(Identifier.ofEngine("bia"));
+                LOGGER.info("Successfully loaded model!");
             } catch (Exception e) {
                 LOGGER.error("Failed to load zombie model: {}", e.getMessage());
                 LOGGER.info("This is normal if you don't have zombie.strmodel and zombie.strskin files yet");
@@ -115,8 +114,8 @@ public class MasterRenderer implements BasicRenderer {
 
         // Render 3 zombie models in different positions
         renderSingleZombie(builder, 0, 0, -3);   // Center
-        renderSingleZombie(builder, -2, 0, -3);  // Left
-        renderSingleZombie(builder, 2, 0, -3);   // Right
+//        renderSingleZombie(builder, -2, 0, -3);  // Left
+//        renderSingleZombie(builder, 2, 0, -3);   // Right
         tess.draw();
     }
 

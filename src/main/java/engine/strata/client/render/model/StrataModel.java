@@ -91,9 +91,30 @@ public class StrataModel {
     /**
          * Mesh data loaded from the JSON file.
          */
-        public record MeshData(String type, String textureSlot, Vector3f origin, Map<String, Vector3f> vertices,
-                               Map<String, Face> faces) {
+    public record MeshData(
+            String type,
+            String textureSlot,
+            Vector3f origin,
+            Vector3f rotation,
+            Mesh mesh,      // Var for traditional mesh data
+            Cuboid cuboid   // Var for new cuboid data
+    ) {
     }
+
+    /**
+     * Represents a cuboid from BlockBench.
+     */
+    public record Cuboid(Vector3f from, Vector3f to, float inflate, Map<String, CuboidFace> faces) {}
+
+    /**
+     * Represents a face in the cuboid.
+     */
+    public record CuboidFace(float[] uv, int rotation) {}
+
+    /**
+     * Represents a mesh from BlockBench.
+     */
+    public record Mesh(Map<String, Vector3f> vertices, Map<String, Face> faces) {}
 
     /**
      * Represents a face (triangle or quad) in the mesh.

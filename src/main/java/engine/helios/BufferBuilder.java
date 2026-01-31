@@ -14,7 +14,7 @@ public class BufferBuilder {
     private final Vector4f tempPos = new Vector4f();
 
     public BufferBuilder(int capacityInBytes) {
-        this.buffer = BufferUtils.createFloatBuffer(capacityInBytes / 4);
+        this.buffer = BufferUtils.createFloatBuffer(capacityInBytes /*/ 4*/);
     }
 
     public void begin(VertexFormat format) {

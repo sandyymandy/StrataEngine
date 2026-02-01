@@ -6,7 +6,9 @@ import engine.strata.client.window.Window;
 import engine.strata.world.World;
 
 public class PlayerEntity extends Entity {
-    private float speed = 0.25f;
+    private float speed;
+    private float normalSpeed = 0.25f;
+    private float slowSpeed = 0.05f;
     private boolean firstMouse = true;
     private double lastMouseX, lastMouseY;
     private float sensitivity = 0.15f;
@@ -49,6 +51,12 @@ public class PlayerEntity extends Entity {
         float radYaw = (float) Math.toRadians(this.getYaw());
         float sin = (float) Math.sin(radYaw);
         float cos = (float) Math.cos(radYaw);
+
+        speed = normalSpeed;
+
+        if(Keybinds.SLOW.isActive()) {
+            speed = slowSpeed;
+        }
 
         if (Keybinds.RIGHT.isActive()) {
             this.setPosX(this.getX() - sin * speed);

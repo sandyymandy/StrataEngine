@@ -8,15 +8,24 @@ import engine.strata.client.StrataClient;
 import engine.strata.client.render.RenderLayers;
 import engine.strata.client.render.model.ModelManager;
 import engine.strata.client.render.model.StrataModel;
+import engine.strata.client.render.model.StrataSkin;
 import engine.strata.entity.Entity;
 import engine.strata.util.Identifier;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 
+/**
+ * Base class for rendering entities using the StrataModel system.
+ * Handles texture layers, batching, and render order.
+ */
 public abstract class EntityRenderer<T extends Entity> {
     protected final EntityRenderDispatcher dispatcher;
     private StrataModel model;
-    private Map<String, Identifier> skin;
+    private StrataSkin skin;
+    private boolean modelLoaded = false;
 
     public EntityRenderer(EntityRendererFactory.Context ctx) {
         this.dispatcher = ctx.dispatcher;
@@ -30,46 +39,99 @@ public abstract class EntityRenderer<T extends Entity> {
      * @param poseStack    The MatrixStack for position/rotation
      */
     public void render(T entity, float partialTicks, MatrixStack poseStack) {
-        // Lazy load model
-        if (model == null) {
-            try {
-                model = ModelManager.getModel(getModelId());
-                skin = ModelManager.getSkin(getModelId());
-            } catch (Exception e) {
-                // If model fails to load, just don't render
-                return;
+        // Lazy load model and skin on first render
+        if (!modelLoaded) {
+            loadModel();
+            if (model == null || skin == null) {
+                return; // Failed to load
             }
         }
 
         poseStack.push();
 
-        // Scale the model (1/16th scale)
+        // Apply entity-specific transformations
+        applyTransformations(entity, partialTicks, poseStack);
+
+        // Scale from model space (16x16x16) to world space (1x1x1)
         poseStack.scale(1.0f / 16.0f, 1.0f / 16.0f, 1.0f / 16.0f);
 
-        // Get the texture and buffer
-        String textureSlot = "main"; // Default texture slot
-        if (!model.getRoot().getMeshIds().isEmpty()) {
-            String meshId = model.getRoot().getMeshIds().get(0);
-            StrataModel.MeshData meshData = model.getMesh(meshId);
-            if (meshData != null) {
-                textureSlot = meshData.textureSlot();
-            }
-        }
-
-        Identifier texture = skin.getOrDefault(textureSlot, Identifier.ofEngine("missing"));
-        RenderLayer layer = RenderLayers.getEntityTexture(texture);
-        BufferBuilder buffer = getBuffer(layer);
-
-        // Ensure buffer is ready
-        if (!buffer.isBuilding()) {
-            buffer.begin(VertexFormat.POSITION_TEXTURE_COLOR);
-        }
-
-        // Render the model directly to the buffer
-        engine.strata.client.StrataClient.getInstance().getMasterRenderer()
-                .getModelRenderer().render(model, poseStack, buffer);
+        // Render all texture layers in priority order
+        renderTextureLayers(entity, partialTicks, poseStack);
 
         poseStack.pop();
+    }
+
+    /**
+     * Loads the model and skin. Override to customize loading behavior.
+     */
+    protected void loadModel() {
+        try {
+            Identifier modelId = getModelId();
+            model = ModelManager.getModel(modelId);
+            skin = ModelManager.getSkin(modelId);
+            modelLoaded = true;
+
+            if (model == null || skin == null) {
+                throw new RuntimeException("Failed to load model or skin: " + modelId);
+            }
+        } catch (Exception e) {
+            // Mark as loaded to prevent retry spam
+            modelLoaded = true;
+        }
+    }
+
+    /**
+     * Renders all texture layers defined in the skin, sorted by priority.
+     */
+    private void renderTextureLayers(T entity, float partialTicks, MatrixStack poseStack) {
+        // Sort texture slots by render priority (lower priority renders first)
+        List<Map.Entry<String, StrataSkin.TextureData>> sortedTextures = new ArrayList<>(skin.textures().entrySet());
+        sortedTextures.sort(Comparator.comparingInt(e -> e.getValue().renderPriority()));
+
+        // Render each texture layer
+        for (Map.Entry<String, StrataSkin.TextureData> entry : sortedTextures) {
+            String slot = entry.getKey();
+            StrataSkin.TextureData textureData = entry.getValue();
+
+            // Skip if this layer shouldn't be rendered (e.g., conditional overlays)
+            if (!shouldRenderLayer(entity, slot)) {
+                continue;
+            }
+
+            // Get the appropriate render layer
+            RenderLayer layer = RenderLayers.getLayerForSlot(
+                    textureData.path(),
+                    textureData.translucent()
+            );
+
+            BufferBuilder buffer = getBuffer(layer);
+
+            // Ensure buffer is ready
+            if (!buffer.isBuilding()) {
+                buffer.begin(VertexFormat.POSITION_TEXTURE_COLOR);
+            }
+
+            // Render the model with this texture
+            StrataClient.getInstance().getMasterRenderer()
+                    .getModelRenderer().render(model, skin, poseStack, buffer);
+        }
+    }
+
+    /**
+     * Apply transformations specific to this entity type.
+     * Override to add custom animations, bobbing, etc.
+     */
+    protected void applyTransformations(T entity, float partialTicks, MatrixStack poseStack) {
+        // Default: no additional transformations
+        // Subclasses can override to add entity-specific behavior
+    }
+
+    /**
+     * Determines if a specific texture layer should be rendered.
+     * Override to implement conditional rendering (e.g., damage overlay, power-ups).
+     */
+    protected boolean shouldRenderLayer(T entity, String textureSlot) {
+        return true; // Render all layers by default
     }
 
     /**
@@ -79,13 +141,31 @@ public abstract class EntityRenderer<T extends Entity> {
         return StrataClient.getInstance().getMasterRenderer().getBuffer(layer);
     }
 
+    /**
+     * Returns the model identifier for this entity.
+     * Must be implemented by subclasses.
+     */
     public abstract Identifier getModelId();
 
     /**
-     * Helper to verify if an entity should be rendered (Culling).
-     * You can override this if you have special entities that are always visible.
+     * Checks if an entity should be rendered (frustum culling).
+     * Override for entities with special rendering rules.
      */
     public boolean shouldRender(T entity, float camX, float camY, float camZ) {
         return entity.isInRange(camX, camY, camZ);
+    }
+
+    /**
+     * Gets the loaded model instance.
+     */
+    protected StrataModel getModel() {
+        return model;
+    }
+
+    /**
+     * Gets the loaded skin instance.
+     */
+    protected StrataSkin getSkin() {
+        return skin;
     }
 }

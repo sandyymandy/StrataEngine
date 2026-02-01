@@ -9,6 +9,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
+import static org.joml.Math.toRadians;
+
 public class StrataModelLoader {
     private static final Logger LOGGER = LoggerFactory.getLogger("ModelLoader");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -25,6 +27,10 @@ public class StrataModelLoader {
             }
 
             JsonObject root = GSON.fromJson(json, JsonObject.class);
+
+            int textureUVWidth = root.get("texture_uv_width").getAsInt();
+            int textureUVHeight = root.get("texture_uv_height").getAsInt();
+
 
             // Parse texture slots
             List<String> textureSlots = new ArrayList<>();
@@ -96,7 +102,7 @@ public class StrataModelLoader {
                 return createFallbackModel(id);
             }
 
-            return new StrataModel(id, rootBone, textureSlots, meshes);
+            return new StrataModel(id, rootBone, textureUVWidth, textureUVHeight, textureSlots, meshes);
 
         } catch (Exception e) {
             LOGGER.error("Error loading model {}: {}", id, e.getMessage());
@@ -112,7 +118,7 @@ public class StrataModelLoader {
         String type = meshObj.get("type").getAsString();
         String textureSlot = meshObj.get("texture").getAsString();
         Vector3f origin = parseVector3f(meshObj.getAsJsonArray("origin"));
-        Vector3f rotation = meshObj.has("rotation") ? parseVector3f(meshObj.getAsJsonArray("rotation")) : new Vector3f();;
+        Vector3f rotation = meshObj.has("rotation") ? parseVector3fToRadians(meshObj.getAsJsonArray("rotation")) : new Vector3f();;
 
         if ("blockbench_cuboid".equals(type)) {
             // 1. Parse Cuboid Geometry
@@ -192,6 +198,20 @@ public class StrataModelLoader {
     }
 
     /**
+     * Parses a Vector3f from a JSON array and converts it to radians
+     */
+    private static Vector3f parseVector3fToRadians(JsonArray array) {
+        if (array == null || array.size() != 3) {
+            return new Vector3f(0, 0, 0);
+        }
+        return new Vector3f(
+            toRadians(array.get(0).getAsFloat()),
+            toRadians(array.get(1).getAsFloat()),
+            toRadians(array.get(2).getAsFloat())
+        );
+    }
+
+    /**
      * Creates a simple fallback cube model when loading fails.
      */
     private static StrataModel createFallbackModel(Identifier id) {
@@ -226,6 +246,6 @@ public class StrataModelLoader {
                 new Vector3f(0, 0, 0), Collections.singletonList("fallback_cuboid")
         );
 
-        return new StrataModel(id, root, Collections.singletonList("main"), meshes);
+        return new StrataModel(id, root, 64, 64, Collections.singletonList("main"), meshes);
     }
 }

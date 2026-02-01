@@ -3,33 +3,26 @@ package engine.helios;
 import engine.strata.client.render.Camera;
 import engine.strata.util.Identifier;
 
-public class RenderLayer {
-    private final Identifier texture;
-    private final ShaderStack shaderStack;
-    private final boolean hasTransparency;
-
-    public RenderLayer(Identifier texture, ShaderStack shaderStack, boolean hasTransparency) {
-        this.texture = texture;
-        this.shaderStack = shaderStack;
-        this.hasTransparency = hasTransparency;
-    }
+public record RenderLayer(Identifier texture, ShaderStack shaderStack, boolean isTranslucent, boolean isDepthTestingEnabled, boolean isCullingEnabled) {
 
     public void setup(Camera camera) {
+        shaderStack.use();
         shaderStack.setUniform("u_Projection", camera.getProjectionMatrix());
         shaderStack.setUniform("u_View", camera.getViewMatrix());
-        shaderStack.use();
         RenderSystem.bindTexture(TextureManager.get(texture));
 
-        if (hasTransparency) {
-            RenderSystem.enableBlend();
-        } else {
-            RenderSystem.disableBlend();
-        }
+        if (isTranslucent()) RenderSystem.enableBlend();
+
+        if(isDepthTestingEnabled()) RenderSystem.enableDepthTest();
+
+        if(isCullingEnabled()) RenderSystem.enableBackFaceCull();
     }
 
     public void clean() {
-        if (this.hasTransparency) {
-            RenderSystem.disableBlend();
-        }
+        if (isTranslucent()) RenderSystem.disableBlend();
+
+        if(isDepthTestingEnabled()) RenderSystem.disableDepthTest();
+
+        if(isCullingEnabled()) RenderSystem.disableBackFaceCull();
     }
 }

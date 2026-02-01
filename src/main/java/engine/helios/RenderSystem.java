@@ -8,6 +8,7 @@ public class RenderSystem {
     private static int currentTexture = -1;
     private static boolean depthTest = false;
     private static boolean blending = false;
+    private static boolean culling = false;
 
     public static void enableDepthTest() {
         if (!depthTest) {
@@ -51,6 +52,21 @@ public class RenderSystem {
         if (blending) {
             glDisable(GL_BLEND);
             blending = false;
+        }
+    }
+
+    public static void enableBackFaceCull() {
+        if (!culling) {
+            glEnable(GL_CULL_FACE);
+            glCullFace(GL_BACK);
+            culling = true;
+        }
+    }
+
+    public static void disableBackFaceCull() {
+        if (culling) {
+            glDisable(GL_CULL_FACE);
+            culling = false;
         }
     }
 }

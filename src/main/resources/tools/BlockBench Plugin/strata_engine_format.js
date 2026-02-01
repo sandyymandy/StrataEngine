@@ -1,8 +1,19 @@
 (function() {
-  
+  const STRATA_FORMAT_VERSION = 3;
+
   let codec, format;
   let modelExportAction, modelImportAction, animExportAction, animImportAction, skinExportAction;
-  
+
+  function collapseVectors(json) {
+      return json
+        // Collapses 3-element arrays: [x, y, z]
+        .replace(/\[\n\s+(-?\d+(?:\.\d+)?),\n\s+(-?\d+(?:\.\d+)?),\n\s+(-?\d+(?:\.\d+)?)\n\s+\]/g, '[$1, $2, $3]')
+        // Collapses 4-element arrays: [u1, v1, u2, v2]
+        .replace(/\[\n\s+(-?\d+(?:\.\d+)?),\n\s+(-?\d+(?:\.\d+)?),\n\s+(-?\d+(?:\.\d+)?),\n\s+(-?\d+(?:\.\d+)?)\n\s+\]/g, '[$1, $2, $3, $4]')
+        // Collapses 2-element arrays: [u, v]
+        .replace(/\[\n\s+(-?\d+(?:\.\d+)?),\n\s+(-?\d+(?:\.\d+)?)\n\s+\]/g, '[$1, $2]');
+    }
+
   Plugin.register('strata_engine_format', {
     title: 'Strata Engine Format',
     author: 'SandyMandy',
@@ -11,7 +22,8 @@
     version: '3.2.0',
     variant: 'both',
     onload() {
-      
+    
+
       // Helper function to get texture name from a cube face
       function getTextureNameFromFace(face) {
         if (face && face.texture !== null) {
@@ -364,7 +376,9 @@
           
           return {
             id: options.modelId || 'strata:model',
-            format_version: 3,
+            texture_uv_width: Project.texture_width || 64,
+            texture_uv_height: Project.texture_height || 64,
+            format_version: STRATA_FORMAT_VERSION,
             textures: textureArray,
             bones: bones,
             meshes: meshes
@@ -374,10 +388,24 @@
         parse(model, path) {
           this.dispatchEvent('parse', {model});
           
-          Project.texture_width = 64;
-          Project.texture_height = 64;
+          // SET PROJECT RESOLUTION ON IMPORT
+          Project.texture_width = model.texture_uv_width || 64;
+          Project.texture_height = model.texture_uv_height || 64;
           
-          // Don't create textures on import - let the user handle that
+          // AUTO-CREATE TEXTURES ON IMPORT
+          if (model.textures && Array.isArray(model.textures)) {
+            model.textures.forEach(texName => {
+              if (!Texture.all.find(t => t.name === texName)) {
+                let tex = new Texture({
+                    name: texName,
+                    keep_size: true,
+                    res: Project.texture_width
+                }).add();
+                // We don't have the source file here, so it stays as a placeholder
+                console.log(`Created placeholder texture: ${texName}`);
+              }
+            });
+          }
           
           const boneGroups = {};
           
@@ -414,7 +442,7 @@
         compile_animation(animation, modelId) {
           const animData = {
             id: modelId,
-            format_version: 3,
+            format_version: STRATA_FORMAT_VERSION,
             length: animation.length,
             loop: animation.loop === 'loop',
             bones: {},
@@ -626,32 +654,46 @@
           if (!modelId) return;
           
           const modelData = codec.compile({ modelId });
+
+          const formattedModel = collapseVectors(JSON.stringify(modelData, null, 2));
           
           Blockbench.export({
             type: 'Strata Model',
             extensions: ['strmodel'],
             name: Project.name || 'model',
-            content: JSON.stringify(modelData, null, 2),
+            content: formattedModel,
             savetype: 'text'
           }, (path) => {
-            // After saving model, also save skin file
-            if (path) {
-              const skinData = {
-                id: modelId,
-                textures: {}
-              };
-              
-              // Build texture paths from texture names
-              modelData.textures.forEach(texName => {
-                skinData.textures[texName] = `strata:entity/${texName.toLowerCase()}`;
-              });
-              
-              const skinPath = path.replace('.strmodel', '.strskin');
-              const fs = require('fs');
-              fs.writeFileSync(skinPath, JSON.stringify(skinData, null, 2));
-              
-              Blockbench.showQuickMessage(`Exported model and skin files`);
-            }
+        if (path) {
+          // Prepare the skin data object
+          const skinData = {
+            id: modelId,
+            format_version: STRATA_FORMAT_VERSION,
+            textures: {}
+          };
+          
+          // Loop through every texture name used in the model
+          modelData.textures.forEach(texName => {
+            // Find the actual Blockbench texture object to get its width/height
+            const bbTex = Texture.all.find(t => t.name === texName);
+            
+            const cleanName = texName.replace(/\.[^/.]+$/, "").toLowerCase();
+            
+            // Per-texture metadata
+            skinData.textures[texName] = {
+              path: `strata:entity/${cleanName}`,
+              width: bbTex ? bbTex.width : Project.texture_width,
+              height: bbTex ? bbTex.height : Project.texture_height
+            };
+          });
+          
+          // Save the .strskin file
+          const skinPath = path.replace('.strmodel', '.strskin');
+          const fs = require('fs');
+          fs.writeFileSync(skinPath, collapseVectors(JSON.stringify(skinData, null, 2)));
+          
+          Blockbench.showQuickMessage(`Exported model and skin files`);
+        }
           });
         }
       });

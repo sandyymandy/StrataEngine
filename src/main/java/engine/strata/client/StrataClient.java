@@ -2,6 +2,7 @@ package engine.strata.client;
 
 import engine.helios.RenderSystem;
 import engine.helios.ShaderManager;
+import engine.strata.api.ClientModInitializer;
 import engine.strata.client.input.InputSystem;
 import engine.strata.client.input.keybind.Keybinds;
 import engine.strata.client.render.renderer.MasterRenderer;
@@ -21,7 +22,7 @@ import org.slf4j.LoggerFactory;
 import static org.lwjgl.glfw.GLFW.glfwTerminate;
 import static org.lwjgl.opengl.GL11.*;
 
-public class StrataClient {
+public class StrataClient implements ClientModInitializer {
     static StrataClient instance;
     private final Window window;
     private final World world;
@@ -49,6 +50,12 @@ public class StrataClient {
         init();
     }
 
+    @Override
+    public void onClientInitialize() {
+        initHelios();
+        run();
+    }
+
     private void init() {
         // Register entity renderers
         EntityRendererRegistry.register(EntityRegistry.PLAYER, engine.strata.client.render.renderer.entity.PlayerEntityRenderer::new);
@@ -56,34 +63,31 @@ public class StrataClient {
 
         // Add player to world
         world.addEntity(player);
-
-        // Spawn some test zombies
-        for (int i = 0; i < 5; i++) {
-            ZombieEntity zombie = EntityRegistry.ZOMBIE.create(world);
-            zombie.setPos(i * 2, 0, -5);
-            world.addEntity(zombie);
-        }
+//
+//        // Spawn some test zombies
+//        for (int i = 0; i < 5; i++) {
+//            ZombieEntity zombie = EntityRegistry.ZOMBIE.create(world);
+//            zombie.setPos(i * 2, 0, -5);
+//            world.addEntity(zombie);
+//        }
     }
 
     private void initHelios() {
         LOGGER.info("Initializing Helios");
 
         ShaderManager.register(Identifier.ofEngine("generic_3d"),
-                Identifier.ofEngine("vertex"),
-                Identifier.ofEngine("fragment")
+                Identifier.ofEngine("included/vertex"),
+                Identifier.ofEngine("included/fragment_debug")
+        );
+        ShaderManager.register(Identifier.ofEngine("entity_cutout"),
+                Identifier.ofEngine("included/vertex"),
+                Identifier.ofEngine("core/entity_cutout")
         );
 
-        glEnable(GL_CULL_FACE);
-        glCullFace(GL_BACK);
-        glEnable(GL_DEPTH_TEST);
+
+
 
         LOGGER.info("OpenGL state configured");
-    }
-
-    public void start() {
-
-        initHelios();
-        run();
     }
 
     /**
@@ -167,4 +171,6 @@ public class StrataClient {
     public World getWorld() {
         return world;
     }
+
+
 }

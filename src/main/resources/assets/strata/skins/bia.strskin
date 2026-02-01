@@ -1,0 +1,11 @@
+{
+  "id": "strata:bia",
+  "format_version": 3,
+  "textures": {
+    "bia.png": {
+      "path": "strata:entity/bia",
+      "width": 4096,
+      "height": 4096
+    }
+  }
+}

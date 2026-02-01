@@ -7,32 +7,35 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class EntityRenderDispatcher {
-    // FIX: Map EntityKey to the Renderer instead of the Class
     private final Map<EntityKey<?>, EntityRenderer<?>> renderers = new HashMap<>();
     private final EntityRendererFactory.Context context;
 
     public EntityRenderDispatcher() {
         this.context = new EntityRendererFactory.Context(this);
+        // We still call inject to load what's already there
+        syncWithRegistry();
+    }
+
+    public void syncWithRegistry() {
         EntityRendererRegistry.inject(this);
     }
 
-    /**
-     * Registers a renderer using an EntityKey.
-     */
     public <T extends Entity> void register(EntityKey<T> entityKey, EntityRendererFactory<T> factory) {
         renderers.put(entityKey, factory.create(this.context));
     }
 
-    /**
-     * Looks up the renderer based on the entity's key.
-     */
     @SuppressWarnings("unchecked")
     public <T extends Entity> EntityRenderer<T> getRenderer(T entity) {
-        EntityRenderer<?> renderer = renderers.get(entity.getKey());
+        EntityKey<?> key = entity.getKey();
+        EntityRenderer<?> renderer = renderers.get(key);
 
+        // If not found in local cache, try to pull it from the Registry now
         if (renderer == null) {
-            // Fallback: Try to find a default renderer if the specific key isn't registered
-            return (EntityRenderer<T>) renderers.get(null);
+            EntityRendererFactory<?> factory = EntityRendererRegistry.getFactory(key);
+            if (factory != null) {
+                register((EntityKey) key, (EntityRendererFactory) factory);
+                renderer = renderers.get(key);
+            }
         }
 
         return (EntityRenderer<T>) renderer;

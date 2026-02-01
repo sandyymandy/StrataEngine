@@ -22,6 +22,7 @@ dependencies {
     implementation "org.lwjgl:lwjgl:$lwjglVersion"
     implementation "org.lwjgl:lwjgl-stb:$lwjglVersion"
     runtimeOnly "org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives"
+    runtimeOnly "org.lwjgl:lwjgl-stb:$lwjglVersion:$lwjglNatives"
 
     // OpenGL
     implementation "org.lwjgl:lwjgl-opengl:$lwjglVersion"

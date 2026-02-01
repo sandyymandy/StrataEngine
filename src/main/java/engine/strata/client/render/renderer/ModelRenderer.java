@@ -3,7 +3,9 @@ package engine.strata.client.render.renderer;
 import engine.helios.BufferBuilder;
 import engine.helios.MatrixStack;
 import engine.helios.VertexFormat;
+import engine.strata.client.StrataClient;
 import engine.strata.client.render.model.StrataModel;
+import engine.strata.client.render.model.StrataSkin;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
@@ -12,47 +14,28 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import static org.joml.Math.toRadians;
+
 /**
  * Renders StrataModel instances by converting mesh data into vertex buffers.
  */
 public class ModelRenderer {
 
     /**
-     * Renders a complete model with the given transformation matrix.
-     * Called from the Render Thread.
+     * Renders a model with a MatrixStack
      */
-    public void render(StrataModel model, Matrix4f pose, BufferBuilder builder) {
-        // Ensure the buffer is ready for writing
+    public void render(StrataModel model, StrataSkin skin, MatrixStack poseStack, BufferBuilder builder) {
         if (!builder.isBuilding()) {
             builder.begin(VertexFormat.POSITION_TEXTURE_COLOR);
         }
-
-        MatrixStack stack = new MatrixStack();
-        stack.push();
-        stack.peek().set(pose);
-
-        renderBone(model, model.getRoot(), stack, builder);
-
-        stack.pop();
-    }
-
-    /**
-     * Renders a model with a MatrixStack (for compatibility).
-     */
-    public void render(StrataModel model, MatrixStack stack, BufferBuilder builder) {
-        // Ensure the buffer is ready for writing
-        if (!builder.isBuilding()) {
-            builder.begin(VertexFormat.POSITION_TEXTURE_COLOR);
-        }
-
-        renderBone(model, model.getRoot(), stack, builder);
+        renderBone(model, skin, model.getRoot(), poseStack, builder);
     }
 
     /**
      * Recursively renders a bone and all its children.
      */
-    private void renderBone(StrataModel model, StrataModel.Bone bone, MatrixStack stack, BufferBuilder builder) {
-        stack.push();
+    private void renderBone(StrataModel model, StrataSkin skin, StrataModel.Bone bone, MatrixStack poseStack, BufferBuilder builder) {
+        poseStack.push();
 
         // 1. Apply bone transformations
         Vector3f pivot = bone.getPivot();
@@ -62,10 +45,10 @@ public class ModelRenderer {
         Vector3f animScale = bone.getAnimScale();
 
         // Move to pivot point
-        stack.translate(pivot.x, pivot.y, pivot.z);
+        poseStack.translate(pivot.x, pivot.y, pivot.z);
 
         // Apply animation translation
-        stack.translate(animTranslation.x, animTranslation.y, animTranslation.z);
+        poseStack.translate(animTranslation.x, animTranslation.y, animTranslation.z);
 
         // Apply rotations (model rotation + animation rotation)
         // Rotation order: Z -> Y -> X
@@ -73,81 +56,90 @@ public class ModelRenderer {
         float totalRotY = rotation.y + animRotation.y;
         float totalRotX = rotation.x + animRotation.x;
 
-        if (totalRotZ != 0) stack.rotate(totalRotZ, 0, 0, 1);
-        if (totalRotY != 0) stack.rotate(totalRotY, 0, 1, 0);
-        if (totalRotX != 0) stack.rotate(totalRotX, 1, 0, 0);
+        if (totalRotZ != 0) poseStack.rotate(totalRotZ, 0, 0, 1);
+        if (totalRotY != 0) poseStack.rotate(totalRotY, 0, 1, 0);
+        if (totalRotX != 0) poseStack.rotate(totalRotX, 1, 0, 0);
 
         // Apply scale
         if (animScale.x != 1 || animScale.y != 1 || animScale.z != 1) {
-            stack.scale(animScale.x, animScale.y, animScale.z);
+            poseStack.scale(animScale.x, animScale.y, animScale.z);
         }
 
         // Move back from pivot
-        stack.translate(-pivot.x, -pivot.y, -pivot.z);
+        poseStack.translate(-pivot.x, -pivot.y, -pivot.z);
 
         // 2. Render all meshes in this bone
         for (String meshId : bone.getMeshIds()) {
             StrataModel.MeshData meshData = model.getMesh(meshId);
             if (meshData != null) {
                 if (meshData.type().equals("blockbench_cuboid")) {
-                    renderCuboid(meshData, stack.peek(), builder);
+                    renderCuboid(model, meshData, skin, poseStack.peek(), builder);
                 } else {
-                    renderMesh(meshData, stack.peek(), builder);
+                    renderMesh(model, meshData, skin, poseStack.peek(), builder);
                 }
             }
         }
 
         // 3. Render all child bones
         for (StrataModel.Bone child : bone.getChildren()) {
-            renderBone(model, child, stack, builder);
+            renderBone(model, skin, child, poseStack, builder);
         }
 
-        stack.pop();
+        poseStack.pop();
     }
 
-    private void renderCuboid(StrataModel.MeshData meshData, Matrix4f matrix, BufferBuilder builder) {
+    private void renderCuboid(StrataModel model, StrataModel.MeshData meshData, StrataSkin skin, Matrix4f matrix, BufferBuilder builder) {
         StrataModel.Cuboid cuboid = meshData.cuboid();
         if (cuboid == null) return;
 
+        // 1. Use a local copy of the matrix so transformations don't leak
+        Matrix4f localMatrix = new Matrix4f(matrix);
+
         Vector3f origin = meshData.origin();
-        Vector3f rotation = new Vector3f(meshData.rotation());
+        Vector3f rotation = meshData.rotation();
         Vector3f from = new Vector3f(cuboid.from());
         Vector3f to = new Vector3f(cuboid.to());
         float inflate = cuboid.inflate();
 
-        // 1. Apply inflation to the corners
-//        if (inflate != 0) {
-//            from.sub(inflate, inflate, inflate);
-//            to.add(inflate, inflate, inflate);
-//        }
+        float uScale = model.uScale();
+        float vScale = model.vScale();
 
-        // 2. Define the 8 corner points of the box
+//        StrataClient.LOGGER.info(uScale  +", "+ vScale);
+
+        // 2. Apply inflation
+        if (inflate != 0) {
+            from.sub(inflate, inflate, inflate);
+            to.add(inflate, inflate, inflate);
+        }
+
         float x0 = from.x, y0 = from.y, z0 = from.z;
         float x1 = to.x,   y1 = to.y,   z1 = to.z;
 
-        // Apply local origin translation
-        matrix.translate(origin.x, origin.y, origin.z);
+        // 3. Apply Element Rotation around its Origin (Pivot)
+        // Order: Translate to Pivot -> Rotate -> Translate back
+        localMatrix.translate(origin.x, origin.y, origin.z);
+        localMatrix.rotateXYZ(rotation.x, rotation.y, rotation.z);
+        localMatrix.translate(-origin.x, -origin.y, -origin.z);
 
-        // 3. Render each face defined in the JSON
-        // Mapping: {FaceName: [Vertex Indices]}
+        // 4. Render faces with corrected winding order (CCW)
         cuboid.faces().forEach((name, face) -> {
             float[] uv = face.uv();
-            // Convert [u1, v1, u2, v2] to 0.0-1.0 range (assuming 64x64 texture)
-            float u1 = uv[0] / 64f, v1 = uv[1] / 64f;
-            float u2 = uv[2] / 64f, v2 = uv[3] / 64f;
+            float u2 = uv[0] * uScale;
+            float v2 = uv[1] * vScale;
+            float u1 = uv[2] * uScale;
+            float v1 = uv[3] * vScale;
 
             switch (name) {
-                case "north" -> drawCuboidFace(matrix, builder, x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, u1, v1, u2, v2);
-                case "south" -> drawCuboidFace(matrix, builder, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, u1, v1, u2, v2);
-                case "west"  -> drawCuboidFace(matrix, builder, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, u1, v1, u2, v2);
-                case "east"  -> drawCuboidFace(matrix, builder, x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, u1, v1, u2, v2);
-                case "up"    -> drawCuboidFace(matrix, builder, x0, y1, z0, x1, y1, z0, x1, y1, z1, x0, y1, z1, u1, v1, u2, v2);
-                case "down"  -> drawCuboidFace(matrix, builder, x0, y0, z1, x1, y0, z1, x1, y0, z0, x0, y0, z0, u1, v1, u2, v2);
+                case "north" -> drawCuboidFace(localMatrix, builder, x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, u1, v1, u2, v2);
+                case "south" -> drawCuboidFace(localMatrix, builder, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, u1, v1, u2, v2);
+                case "west"  -> drawCuboidFace(localMatrix, builder, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, u1, v1, u2, v2);
+                case "east"  -> drawCuboidFace(localMatrix, builder, x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, u1, v1, u2, v2);
+
+                // FIX: Corrected winding order for Up and Down to prevent culling
+                case "up"    -> drawCuboidFace(localMatrix, builder, x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, u1, v1, u2, v2);
+                case "down"  -> drawCuboidFace(localMatrix, builder, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, u1, v1, u2, v2);
             }
         });
-
-//        matrix.rotateXYZ(rotation.x, rotation.y, rotation.z);
-        matrix.translate(-origin.x, -origin.y, -origin.z);
     }
 
     /**
@@ -158,46 +150,47 @@ public class ModelRenderer {
                                 float x3, float y3, float z3, float x4, float y4, float z4,
                                 float u1, float v1, float u2, float v2) {
         // Triangle 1
-        builder.vertex(matrix, x1, y1, z1).tex(u1, v1).color(1, 1, 1, 1).next();
-        builder.vertex(matrix, x2, y2, z2).tex(u2, v1).color(1, 1, 1, 1).next();
-        builder.vertex(matrix, x3, y3, z3).tex(u2, v2).color(1, 1, 1, 1).next();
+        builder.vertex(matrix, x1, y1, z1).tex(u1, v1).color(1, 1, 1, 1).end();
+        builder.vertex(matrix, x2, y2, z2).tex(u2, v1).color(1, 1, 1, 1).end();
+        builder.vertex(matrix, x3, y3, z3).tex(u2, v2).color(1, 1, 1, 1).end();
 
         // Triangle 2
-        builder.vertex(matrix, x1, y1, z1).tex(u1, v1).color(1, 1, 1, 1).next();
-        builder.vertex(matrix, x3, y3, z3).tex(u2, v2).color(1, 1, 1, 1).next();
-        builder.vertex(matrix, x4, y4, z4).tex(u1, v2).color(1, 1, 1, 1).next();
+        builder.vertex(matrix, x1, y1, z1).tex(u1, v1).color(1, 1, 1, 1).end();
+        builder.vertex(matrix, x3, y3, z3).tex(u2, v2).color(1, 1, 1, 1).end();
+        builder.vertex(matrix, x4, y4, z4).tex(u1, v2).color(1, 1, 1, 1).end();
     }
 
     /**
      * Renders a single mesh by triangulating faces and streaming to the buffer.
      */
-    private void renderMesh(StrataModel.MeshData meshData, Matrix4f matrix, BufferBuilder builder) {
+    private void renderMesh(StrataModel model, StrataModel.MeshData meshData, StrataSkin skin, Matrix4f matrix, BufferBuilder builder) {
         StrataModel.Mesh mesh = meshData.mesh();
         if (mesh == null) return;
 
+        // FIX: Prevent transformation leakage
+        Matrix4f localMatrix = new Matrix4f(matrix);
         Vector3f origin = meshData.origin();
-        Vector3f rotation = new Vector3f(meshData.rotation());
+        Vector3f rotation = meshData.rotation();
+
+        // Apply local rotation at pivot
+        localMatrix.translate(origin.x, origin.y, origin.z);
+        localMatrix.rotateXYZ(rotation.x, rotation.y, rotation.z);
+        localMatrix.translate(-origin.x, -origin.y, -origin.z);
+
         Map<String, Vector3f> vertices = mesh.vertices();
         Map<String, StrataModel.Face> faces = mesh.faces();
 
-        matrix.translate(origin.x,origin.y,origin.z);
-
-        // Process each face
         for (StrataModel.Face face : faces.values()) {
             List<String> ids = face.getVertexIds();
             Map<String, float[]> uvs = face.getUvs();
 
-            // Triangulate the face (support both triangles and quads)
             if (ids.size() == 4) {
                 List<String> sortedIds = sortQuad(vertices, ids);
-
-                renderQuad(vertices, uvs, sortedIds.get(0), sortedIds.get(1), sortedIds.get(2), sortedIds.get(3), matrix, builder);
+                renderQuad(vertices, uvs, sortedIds.get(0), sortedIds.get(1), sortedIds.get(2), sortedIds.get(3), localMatrix, builder);
             } else if (ids.size() == 3) {
-                renderTriangle(vertices, uvs, ids.get(0), ids.get(1), ids.get(2), matrix, builder);
+                renderTriangle(vertices, uvs, ids.get(0), ids.get(1), ids.get(2), localMatrix, builder);
             }
         }
-
-        matrix.translate(-origin.x,-origin.y,-origin.z);
     }
 
     /**
@@ -224,19 +217,19 @@ public class ModelRenderer {
         builder.vertex(matrix, v1.x, v1.y, v1.z)
                 .tex(uv1[0], uv1[1])
                 .color(1, 1, 1, 1)
-                .next();
+                .end();
 
         // Vertex 2
         builder.vertex(matrix, v2.x, v2.y, v2.z)
                 .tex(uv2[0], uv2[1])
                 .color(1, 1, 1, 1)
-                .next();
+                .end();
 
         // Vertex 3
         builder.vertex(matrix, v3.x, v3.y, v3.z)
                 .tex(uv3[0], uv3[1])
                 .color(1, 1, 1, 1)
-                .next();
+                .end();
     }
 
     private void renderQuad(Map<String, Vector3f> vertices, Map<String, float[]> uvs,

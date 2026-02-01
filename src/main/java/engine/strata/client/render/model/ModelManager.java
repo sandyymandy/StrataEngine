@@ -13,7 +13,7 @@ import java.util.Map;
 public class ModelManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("ModelManager");
     private static final Map<Identifier, StrataModel> MODELS = new HashMap<>();
-    private static final Map<Identifier, Map<String, Identifier>> SKINS = new HashMap<>();
+    private static final Map<Identifier, StrataSkin> SKINS = new HashMap<>();
 
     /**
      * Gets a model, loading it if necessary.
@@ -25,16 +25,8 @@ public class ModelManager {
     /**
      * Gets a skin (texture mapping), loading it if necessary.
      */
-    public static Map<String, Identifier> getSkin(Identifier id) {
+    public static StrataSkin getSkin(Identifier id) {
         return SKINS.computeIfAbsent(id, StrataSkinLoader::load);
-    }
-
-    /**
-     * Gets the texture identifier for a specific texture slot in a skin.
-     */
-    public static Identifier getTexture(Identifier skinId, String slot) {
-        Map<String, Identifier> skin = getSkin(skinId);
-        return skin.getOrDefault(slot, Identifier.ofEngine("missing"));
     }
 
     /**

@@ -38,4 +38,9 @@ public class Keybinds {
             Identifier.of("strata", "down"),
             GLFW.GLFW_KEY_Q
     );
+
+    public static final Keybind SLOW = new Keybind(
+            Identifier.of("strata", "slow"),
+            GLFW.GLFW_KEY_LEFT_CONTROL
+    );
 }

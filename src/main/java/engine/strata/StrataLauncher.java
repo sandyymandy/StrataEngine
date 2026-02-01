@@ -46,14 +46,7 @@ public class StrataLauncher {
         } else {
             // 3. Initialize Client Logic
             EntrypointManager.invoke("client", ClientModInitializer.class, ClientModInitializer::onClientInitialize);
-            launchClient();
         }
-    }
-
-    private static void launchClient() {
-        // Here we could use Reflection to load a specific ClientEntrypoint class
-        StrataClient client = new StrataClient();
-        client.start(); // This starts your game loop
     }
 
     private static void launchServer() {

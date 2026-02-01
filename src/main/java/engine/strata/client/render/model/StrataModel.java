@@ -2,6 +2,8 @@ package engine.strata.client.render.model;
 
 import engine.strata.util.Identifier;
 import org.joml.Vector3f;
+import org.lwjgl.system.windows.INPUT;
+
 import java.util.*;
 
 /**
@@ -11,12 +13,16 @@ import java.util.*;
 public class StrataModel {
     private final Identifier id;
     private final Bone root;
+    private final int textureUVWidth;
+    private final int textureUVHeight;
     private final List<String> textureSlots;
     private final Map<String, MeshData> meshes;
 
-    public StrataModel(Identifier id, Bone root, List<String> textureSlots, Map<String, MeshData> meshes) {
+    public StrataModel(Identifier id, Bone root, int textureUVWidth, int textureUVHeight, List<String> textureSlots, Map<String, MeshData> meshes) {
         this.id = id;
         this.root = root;
+        this.textureUVWidth = textureUVWidth;
+        this.textureUVHeight = textureUVHeight;
         this.textureSlots = textureSlots;
         this.meshes = meshes;
     }
@@ -27,6 +33,14 @@ public class StrataModel {
 
     public Identifier getId() {
         return id;
+    }
+
+    public float uScale() {
+        return 1.0f / textureUVWidth;
+    }
+
+    public float vScale() {
+        return 1.0f / textureUVHeight;
     }
 
     /**
@@ -99,6 +113,7 @@ public class StrataModel {
             Mesh mesh,      // Var for traditional mesh data
             Cuboid cuboid   // Var for new cuboid data
     ) {
+
     }
 
     /**

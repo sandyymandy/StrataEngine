@@ -15,8 +15,8 @@ public class ShaderStack {
     private static final FloatBuffer matrixBuffer = BufferUtils.createFloatBuffer(16);
 
     public ShaderStack(Identifier vertexId, Identifier fragmentId) {
-        String vertSrc = ResourceManager.loadAsString(vertexId, "shaders", "glsl");
-        String fragSrc = ResourceManager.loadAsString(fragmentId, "shaders", "glsl");
+        String vertSrc = ResourceManager.loadAsString(vertexId, "shaders", "vert");
+        String fragSrc = ResourceManager.loadAsString(fragmentId, "shaders", "frag");
 
         if (vertSrc.isEmpty() || fragSrc.isEmpty()) {
             throw new RuntimeException("Shader source is empty! Check paths for: " + vertexId + " or " + fragmentId);

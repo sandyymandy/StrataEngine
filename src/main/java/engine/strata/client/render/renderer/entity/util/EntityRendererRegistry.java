@@ -13,7 +13,10 @@ public class EntityRendererRegistry {
         RENDERERS.put(key, factory);
     }
 
-    // This is called by the EntityRenderDispatcher when IT is initialized
+    public static EntityRendererFactory<?> getFactory(EntityKey<?> key) {
+        return RENDERERS.get(key);
+    }
+
     public static void inject(EntityRenderDispatcher dispatcher) {
         RENDERERS.forEach((key, factory) -> {
             dispatcher.register((EntityKey)key, (EntityRendererFactory)factory);

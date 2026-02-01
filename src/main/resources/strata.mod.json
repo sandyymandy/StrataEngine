@@ -2,7 +2,7 @@
   "namespace": "strata",
   "name": "Strata Engine",
   "version": "1.0.0",
-  "api_version": "1.0.0",
+  "api_version": 1,
   "description": "The core engine logic.",
   "author": "SandyMandy",
   "entrypoints": {

@@ -56,7 +56,7 @@ public class BufferBuilder {
         return this;
     }
 
-    public void next() {
+    public void end() {
         if (!building) {
             throw new IllegalStateException("Not building!");
         }

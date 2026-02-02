@@ -172,10 +172,6 @@ public class MasterRenderer implements BasicRenderer {
         }
     }
 
-    /**
-     * Renders a test model for debugging.
-     * FIXED: Now uses the proper render layer system!
-     */
     private void renderTestModel() {
         // Try to load model once
         if (!testModelLoadAttempted) {
@@ -210,31 +206,11 @@ public class MasterRenderer implements BasicRenderer {
         poseStack.translate(0, 0, -5); // Position in front of camera
         poseStack.scale(1.0f / 16.0f, 1.0f / 16.0f, 1.0f / 16.0f);
 
-        // Render each texture layer (important for multi-texture models!)
-        for (Map.Entry<String, StrataSkin.TextureData> entry : testSkin.textures().entrySet()) {
-            String slot = entry.getKey();
-            StrataSkin.TextureData texData = entry.getValue();
-
-            // Get the appropriate render layer
-            RenderLayer layer = RenderLayers.getLayerForSlot(
-                    texData.path(),
-                    texData.translucent()
-            );
-
-            // Get the buffer for this layer
-            BufferBuilder buffer = getBuffer(layer);
-
-            // Ensure buffer is building
-            if (!buffer.isBuilding()) {
-                buffer.begin(VertexFormat.POSITION_TEXTURE_COLOR);
-            }
-
-            // Render the model into this buffer
-            modelRenderer.render(testModel, testSkin, poseStack, buffer);
-        }
+        modelRenderer.render(testModel, testSkin, poseStack);
 
         poseStack.pop();
     }
+
 
     private void renderSceneCubes() {
         Tessellator tess = Tessellator.getInstance();

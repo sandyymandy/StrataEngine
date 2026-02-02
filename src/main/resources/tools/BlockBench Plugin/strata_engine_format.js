@@ -671,19 +671,30 @@
             format_version: STRATA_FORMAT_VERSION,
             textures: {}
           };
+
+          // We use a copy of the textures array to determine priority
+          // Blockbench texture list order: first in list = highest priority
+          const allProjectTextures = Texture.all;
           
-          // Loop through every texture name used in the model
-          modelData.textures.forEach(texName => {
-            // Find the actual Blockbench texture object to get its width/height
-            const bbTex = Texture.all.find(t => t.name === texName);
-            
+          modelData.textures.forEach((texName) => {
+            // Find the actual Blockbench texture object
+            const bbTex = allProjectTextures.find(t => t.name === texName);
+        
+            // Calculate Render Priority: 
+            // We want the top-most texture in the list to have the highest priority number
+            // so it renders last (on top of others).
+            const listIndex = allProjectTextures.indexOf(bbTex);
+            const priority = listIndex !== -1 ? (allProjectTextures.length - listIndex) : 0;
+
             const cleanName = texName.replace(/\.[^/.]+$/, "").toLowerCase();
-            
-            // Per-texture metadata
+
             skinData.textures[texName] = {
               path: `strata:entity/${cleanName}`,
-              width: bbTex ? bbTex.width : Project.texture_width,
-              height: bbTex ? bbTex.height : Project.texture_height
+              width: bbTex ? bbTex.width : (Project.texture_width || 16),
+              height: bbTex ? bbTex.height : (Project.texture_height || 16),
+              // Use Blockbench's internal 'transparent' flag
+              translucent: true, 
+              render_priority: priority
             };
           });
           

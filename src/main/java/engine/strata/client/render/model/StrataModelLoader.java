@@ -9,8 +9,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
-import static org.joml.Math.toRadians;
-
 public class StrataModelLoader {
     private static final Logger LOGGER = LoggerFactory.getLogger("ModelLoader");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -118,7 +116,7 @@ public class StrataModelLoader {
         String type = meshObj.get("type").getAsString();
         String textureSlot = meshObj.get("texture").getAsString();
         Vector3f origin = parseVector3f(meshObj.getAsJsonArray("origin"));
-        Vector3f rotation = meshObj.has("rotation") ? parseVector3fToRadians(meshObj.getAsJsonArray("rotation")) : new Vector3f();;
+        Vector3f rotation = meshObj.has("rotation") ? parseVector3fToRadians(meshObj.getAsJsonArray("rotation")) : new Vector3f();
 
         if ("blockbench_cuboid".equals(type)) {
             // 1. Parse Cuboid Geometry
@@ -205,9 +203,9 @@ public class StrataModelLoader {
             return new Vector3f(0, 0, 0);
         }
         return new Vector3f(
-            toRadians(array.get(0).getAsFloat()),
-            toRadians(array.get(1).getAsFloat()),
-            toRadians(array.get(2).getAsFloat())
+            (float) Math.toRadians(array.get(0).getAsFloat()),
+            (float) Math.toRadians(array.get(1).getAsFloat()),
+            (float) Math.toRadians(array.get(2).getAsFloat())
         );
     }
 

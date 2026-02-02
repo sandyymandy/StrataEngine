@@ -56,7 +56,8 @@ public abstract class EntityRenderer<T extends Entity> {
         poseStack.scale(1.0f / 16.0f, 1.0f / 16.0f, 1.0f / 16.0f);
 
         // Render all texture layers in priority order
-        renderTextureLayers(entity, partialTicks, poseStack);
+        StrataClient.getInstance().getMasterRenderer()
+                .getModelRenderer().render(model, skin, poseStack);;
 
         poseStack.pop();
     }
@@ -77,43 +78,6 @@ public abstract class EntityRenderer<T extends Entity> {
         } catch (Exception e) {
             // Mark as loaded to prevent retry spam
             modelLoaded = true;
-        }
-    }
-
-    /**
-     * Renders all texture layers defined in the skin, sorted by priority.
-     */
-    private void renderTextureLayers(T entity, float partialTicks, MatrixStack poseStack) {
-        // Sort texture slots by render priority (lower priority renders first)
-        List<Map.Entry<String, StrataSkin.TextureData>> sortedTextures = new ArrayList<>(skin.textures().entrySet());
-        sortedTextures.sort(Comparator.comparingInt(e -> e.getValue().renderPriority()));
-
-        // Render each texture layer
-        for (Map.Entry<String, StrataSkin.TextureData> entry : sortedTextures) {
-            String slot = entry.getKey();
-            StrataSkin.TextureData textureData = entry.getValue();
-
-            // Skip if this layer shouldn't be rendered (e.g., conditional overlays)
-            if (!shouldRenderLayer(entity, slot)) {
-                continue;
-            }
-
-            // Get the appropriate render layer
-            RenderLayer layer = RenderLayers.getLayerForSlot(
-                    textureData.path(),
-                    textureData.translucent()
-            );
-
-            BufferBuilder buffer = getBuffer(layer);
-
-            // Ensure buffer is ready
-            if (!buffer.isBuilding()) {
-                buffer.begin(VertexFormat.POSITION_TEXTURE_COLOR);
-            }
-
-            // Render the model with this texture
-            StrataClient.getInstance().getMasterRenderer()
-                    .getModelRenderer().render(model, skin, poseStack, buffer);
         }
     }
 

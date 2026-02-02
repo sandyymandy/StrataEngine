@@ -2,39 +2,85 @@ package engine.strata.client.render.renderer;
 
 import engine.helios.BufferBuilder;
 import engine.helios.MatrixStack;
+import engine.helios.RenderLayer;
 import engine.helios.VertexFormat;
 import engine.strata.client.StrataClient;
+import engine.strata.client.render.RenderLayers;
 import engine.strata.client.render.model.StrataModel;
 import engine.strata.client.render.model.StrataSkin;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static org.joml.Math.toRadians;
-
 /**
  * Renders StrataModel instances by converting mesh data into vertex buffers.
  */
 public class ModelRenderer {
+    private static final Logger LOGGER = LoggerFactory.getLogger("ModelRenderer");
+
+    public void render(StrataModel model, StrataSkin skin, MatrixStack poseStack) {
+        for (Map.Entry<String, StrataSkin.TextureData> entry : skin.textures().entrySet()) {
+            String textureSlot = entry.getKey(); // e.g., "bia.png", "steve.png"
+            StrataSkin.TextureData texData = entry.getValue();
+
+            LOGGER.debug("Rendering test model layer '{}' with texture: {}", textureSlot, texData.path());
+
+            // Get the appropriate render layer
+            RenderLayer layer = RenderLayers.getLayerForSlot(
+                    texData.path(),
+                    texData.translucent()
+            );
+
+            // Get the buffer for this layer
+            BufferBuilder buffer = StrataClient.getInstance().getMasterRenderer().getBuffer(layer);
+
+            // Ensure buffer is building
+            if (!buffer.isBuilding()) {
+                buffer.begin(VertexFormat.POSITION_TEXTURE_COLOR);
+            }
+
+            // CRITICAL: Pass the texture slot filter so only matching meshes are rendered
+            renderModel(model, skin, textureSlot, poseStack, buffer);
+        }
+    }
 
     /**
-     * Renders a model with a MatrixStack
+     * Renders a model with a MatrixStack.
+     * This renders ALL meshes (used when you have a single texture).
      */
-    public void render(StrataModel model, StrataSkin skin, MatrixStack poseStack, BufferBuilder builder) {
+    public void renderModel(StrataModel model, StrataSkin skin, MatrixStack poseStack, BufferBuilder builder) {
         if (!builder.isBuilding()) {
             builder.begin(VertexFormat.POSITION_TEXTURE_COLOR);
         }
-        renderBone(model, skin, model.getRoot(), poseStack, builder);
+        renderBone(model, skin, null, model.getRoot(), poseStack, builder);
+    }
+
+    /**
+     * Renders a model with a specific texture slot filter.
+     * Only meshes matching the textureSlot will be rendered.
+     *
+     * @param textureSlotFilter The texture slot to render (e.g., "bia.png", "steve.png")
+     */
+    public void renderModel(StrataModel model, StrataSkin skin, String textureSlotFilter, MatrixStack poseStack, BufferBuilder builder) {
+        if (!builder.isBuilding()) {
+            builder.begin(VertexFormat.POSITION_TEXTURE_COLOR);
+        }
+        renderBone(model, skin, textureSlotFilter, model.getRoot(), poseStack, builder);
     }
 
     /**
      * Recursively renders a bone and all its children.
+     *
+     * @param textureSlotFilter If not null, only render meshes with this texture slot
      */
-    private void renderBone(StrataModel model, StrataSkin skin, StrataModel.Bone bone, MatrixStack poseStack, BufferBuilder builder) {
+    private void renderBone(StrataModel model, StrataSkin skin, String textureSlotFilter,
+                            StrataModel.Bone bone, MatrixStack poseStack, BufferBuilder builder) {
         poseStack.push();
 
         // 1. Apply bone transformations
@@ -68,10 +114,15 @@ public class ModelRenderer {
         // Move back from pivot
         poseStack.translate(-pivot.x, -pivot.y, -pivot.z);
 
-        // 2. Render all meshes in this bone
+        // 2. Render all meshes in this bone (filtered by texture slot)
         for (String meshId : bone.getMeshIds()) {
             StrataModel.MeshData meshData = model.getMesh(meshId);
             if (meshData != null) {
+                // CRITICAL FIX: Filter by texture slot if specified
+                if (textureSlotFilter != null && !meshData.textureSlot().equals(textureSlotFilter)) {
+                    continue; // Skip this mesh, it uses a different texture
+                }
+
                 if (meshData.type().equals("blockbench_cuboid")) {
                     renderCuboid(model, meshData, skin, poseStack.peek(), builder);
                 } else {
@@ -82,7 +133,7 @@ public class ModelRenderer {
 
         // 3. Render all child bones
         for (StrataModel.Bone child : bone.getChildren()) {
-            renderBone(model, skin, child, poseStack, builder);
+            renderBone(model, skin, textureSlotFilter, child, poseStack, builder);
         }
 
         poseStack.pop();
@@ -96,15 +147,13 @@ public class ModelRenderer {
         Matrix4f localMatrix = new Matrix4f(matrix);
 
         Vector3f origin = meshData.origin();
-        Vector3f rotation = meshData.rotation();
+        Vector3f rotation = new Vector3f(meshData.rotation());
         Vector3f from = new Vector3f(cuboid.from());
         Vector3f to = new Vector3f(cuboid.to());
         float inflate = cuboid.inflate();
 
         float uScale = model.uScale();
         float vScale = model.vScale();
-
-//        StrataClient.LOGGER.info(uScale  +", "+ vScale);
 
         // 2. Apply inflation
         if (inflate != 0) {
@@ -118,26 +167,37 @@ public class ModelRenderer {
         // 3. Apply Element Rotation around its Origin (Pivot)
         // Order: Translate to Pivot -> Rotate -> Translate back
         localMatrix.translate(origin.x, origin.y, origin.z);
-        localMatrix.rotateXYZ(rotation.x, rotation.y, rotation.z);
+        localMatrix.rotateZYX(rotation.z,rotation.y,rotation.x);
         localMatrix.translate(-origin.x, -origin.y, -origin.z);
 
         // 4. Render faces with corrected winding order (CCW)
         cuboid.faces().forEach((name, face) -> {
             float[] uv = face.uv();
-            float u2 = uv[0] * uScale;
-            float v2 = uv[1] * vScale;
-            float u1 = uv[2] * uScale;
-            float v1 = uv[3] * vScale;
+            float u1 = uv[0] * uScale;
+            float v1 = uv[1] * vScale;
+            float u2 = uv[2] * uScale;
+            float v2 = uv[3] * vScale;
 
             switch (name) {
-                case "north" -> drawCuboidFace(localMatrix, builder, x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, u1, v1, u2, v2);
-                case "south" -> drawCuboidFace(localMatrix, builder, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, u1, v1, u2, v2);
-                case "west"  -> drawCuboidFace(localMatrix, builder, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, u1, v1, u2, v2);
-                case "east"  -> drawCuboidFace(localMatrix, builder, x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, u1, v1, u2, v2);
+                // format: drawCuboidFace(matrix, builder, bottom-left, bottom-right, top-right, top-left, u1, v1, u2, v2)
 
-                // FIX: Corrected winding order for Up and Down to prevent culling
-                case "up"    -> drawCuboidFace(localMatrix, builder, x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, u1, v1, u2, v2);
-                case "down"  -> drawCuboidFace(localMatrix, builder, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, u1, v1, u2, v2);
+                case "north" -> // z0 plane
+                        drawCuboidFace(localMatrix, builder, x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, u1, v2, u2, v1);
+
+                case "south" -> // z1 plane
+                        drawCuboidFace(localMatrix, builder, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, u1, v2, u2, v1);
+
+                case "west"  -> // x0 plane
+                        drawCuboidFace(localMatrix, builder, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, u1, v2, u2, v1);
+
+                case "east"  -> // x1 plane
+                        drawCuboidFace(localMatrix, builder, x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, u1, v2, u2, v1);
+
+                case "up"    -> // y1 plane
+                        drawCuboidFace(localMatrix, builder, x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, u1, v1, u2, v2);
+
+                case "down"  -> // y0 plane
+                        drawCuboidFace(localMatrix, builder, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, u1, v1, u2, v2);
             }
         });
     }
@@ -174,7 +234,7 @@ public class ModelRenderer {
 
         // Apply local rotation at pivot
         localMatrix.translate(origin.x, origin.y, origin.z);
-        localMatrix.rotateXYZ(rotation.x, rotation.y, rotation.z);
+        localMatrix.rotateZYX(rotation.z,rotation.y,rotation.x);
         localMatrix.translate(-origin.x, -origin.y, -origin.z);
 
         Map<String, Vector3f> vertices = mesh.vertices();

@@ -5,7 +5,16 @@
     "bia.png": {
       "path": "strata:entity/bia",
       "width": 4096,
-      "height": 4096
+      "height": 4096,
+      "translucent": true,
+      "render_priority": 2
+    },
+    "steve.png": {
+      "path": "strata:entity/steve",
+      "width": 64,
+      "height": 64,
+      "translucent": true,
+      "render_priority": 1
     }
   }
 }

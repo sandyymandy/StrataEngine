@@ -194,10 +194,10 @@ public class ModelRenderer {
                         drawCuboidFace(localMatrix, builder, x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, u1, v2, u2, v1);
 
                 case "up"    -> // y1 plane
-                        drawCuboidFace(localMatrix, builder, x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, u1, v1, u2, v2);
+                        drawCuboidFace(localMatrix, builder, x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, u1, v2, u2, v1);
 
                 case "down"  -> // y0 plane
-                        drawCuboidFace(localMatrix, builder, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, u1, v1, u2, v2);
+                        drawCuboidFace(localMatrix, builder, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, u1, v2, u2, v1);
             }
         });
     }
@@ -234,7 +234,7 @@ public class ModelRenderer {
 
         // Apply local rotation at pivot
         localMatrix.translate(origin.x, origin.y, origin.z);
-        localMatrix.rotateZYX(rotation.z,rotation.y,rotation.x);
+        localMatrix.rotateXYZ(rotation.x, rotation.y, rotation.z);
         localMatrix.translate(-origin.x, -origin.y, -origin.z);
 
         Map<String, Vector3f> vertices = mesh.vertices();

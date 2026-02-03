@@ -3,16 +3,13 @@ package engine.strata.registry.registries;
 import engine.strata.entity.Entity;
 import engine.strata.entity.EntityKey;
 import engine.strata.entity.PlayerEntity;
-import engine.strata.entity.ZombieEntity;
+import engine.strata.entity.BiaEntity;
 import engine.strata.registry.Registry;
 import engine.strata.util.Identifier;
 
-import java.util.HashMap;
-import java.util.Map;
-
 public class EntityRegistry {
 
-    public static final EntityKey<ZombieEntity> ZOMBIE = register("zombie", EntityKey.Builder.create(ZombieEntity::new));
+    public static final EntityKey<BiaEntity> BIA = register("bia", EntityKey.Builder.create(BiaEntity::new));
     public static final EntityKey<PlayerEntity> PLAYER = register("player", EntityKey.Builder.create(PlayerEntity::new));
 
     /**

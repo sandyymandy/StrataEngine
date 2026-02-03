@@ -1,18 +1,18 @@
 package engine.strata.client;
 
-import engine.helios.RenderSystem;
 import engine.helios.ShaderManager;
 import engine.strata.api.ClientModInitializer;
 import engine.strata.client.input.InputSystem;
 import engine.strata.client.input.keybind.Keybinds;
 import engine.strata.client.render.renderer.MasterRenderer;
-import engine.strata.client.render.renderer.entity.ZombieEntityRenderer;
+import engine.strata.client.render.renderer.entity.BiaEntityRenderer;
+import engine.strata.client.render.renderer.entity.PlayerEntityRenderer;
 import engine.strata.client.render.renderer.entity.util.EntityRendererRegistry;
 import engine.strata.client.window.Window;
 import engine.strata.client.window.WindowConfig;
+import engine.strata.entity.BiaEntity;
 import engine.strata.entity.Entity;
 import engine.strata.entity.PlayerEntity;
-import engine.strata.entity.ZombieEntity;
 import engine.strata.registry.registries.EntityRegistry;
 import engine.strata.util.Identifier;
 import engine.strata.world.World;
@@ -20,7 +20,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static org.lwjgl.glfw.GLFW.glfwTerminate;
-import static org.lwjgl.opengl.GL11.*;
 
 public class StrataClient implements ClientModInitializer {
     static StrataClient instance;
@@ -58,18 +57,18 @@ public class StrataClient implements ClientModInitializer {
 
     private void init() {
         // Register entity renderers
-        EntityRendererRegistry.register(EntityRegistry.PLAYER, engine.strata.client.render.renderer.entity.PlayerEntityRenderer::new);
-        EntityRendererRegistry.register(EntityRegistry.ZOMBIE, ZombieEntityRenderer::new);
+        EntityRendererRegistry.register(EntityRegistry.PLAYER, PlayerEntityRenderer::new);
+        EntityRendererRegistry.register(EntityRegistry.BIA, BiaEntityRenderer::new);
 
         // Add player to world
         world.addEntity(player);
-//
-//        // Spawn some test zombies
-//        for (int i = 0; i < 5; i++) {
-//            ZombieEntity zombie = EntityRegistry.ZOMBIE.create(world);
-//            zombie.setPos(i * 2, 0, -5);
-//            world.addEntity(zombie);
-//        }
+
+        // Spawn some test zombies
+        for (int i = 0; i < 10; i++) {
+            BiaEntity bia = EntityRegistry.BIA.create(world);
+            bia.setPos(i * 2, 0, -5);
+            world.addEntity(bia);
+        }
     }
 
     private void initHelios() {
@@ -77,7 +76,7 @@ public class StrataClient implements ClientModInitializer {
 
         ShaderManager.register(Identifier.ofEngine("generic_3d"),
                 Identifier.ofEngine("included/vertex"),
-                Identifier.ofEngine("included/fragment_debug")
+                Identifier.ofEngine("included/fragment")
         );
         ShaderManager.register(Identifier.ofEngine("entity_cutout"),
                 Identifier.ofEngine("included/vertex"),

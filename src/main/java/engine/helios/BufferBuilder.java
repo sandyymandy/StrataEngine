@@ -7,14 +7,17 @@ import java.nio.FloatBuffer;
 
 public class BufferBuilder {
     private final FloatBuffer buffer;
+    private final int capacityInBytes;
     private int vertexCount = 0;
     private VertexFormat format;
     private boolean building = false;
+
     // Pre-allocate to avoid GC pressure during rendering
     private final Vector4f tempPos = new Vector4f();
 
     public BufferBuilder(int capacityInBytes) {
-        this.buffer = BufferUtils.createFloatBuffer(capacityInBytes /*/ 4*/);
+        this.capacityInBytes = capacityInBytes;
+        this.buffer = BufferUtils.createFloatBuffer(capacityInBytes / 4); // 4 bytes per float
     }
 
     public void begin(VertexFormat format) {
@@ -79,5 +82,57 @@ public class BufferBuilder {
 
     public boolean isBuilding() {
         return building;
+    }
+
+    /**
+     * Gets the buffer capacity in bytes.
+     * @return capacity in bytes
+     */
+    public int getCapacity() {
+        return capacityInBytes;
+    }
+
+    /**
+     * Gets the current position in the buffer (in bytes).
+     * This represents how much data has been written.
+     * @return current position in bytes
+     */
+    public int getPosition() {
+        return buffer.position() * 4; // Convert floats to bytes
+    }
+
+    /**
+     * Gets the remaining capacity in the buffer (in bytes).
+     * @return remaining bytes available
+     */
+    public int getRemaining() {
+        return capacityInBytes - getPosition();
+    }
+
+    /**
+     * Checks if the buffer has enough space for the specified number of bytes.
+     * @param bytes number of bytes to check
+     * @return true if there's enough space
+     */
+    public boolean hasSpace(int bytes) {
+        return getRemaining() >= bytes;
+    }
+
+    /**
+     * Gets the buffer usage as a percentage (0.0 to 1.0).
+     * @return usage percentage
+     */
+    public float getUsage() {
+        return (float) getPosition() / capacityInBytes;
+    }
+
+    /**
+     * Resets the buffer for reuse without reallocating.
+     * Called after flushing to GPU.
+     */
+    public void reset() {
+        this.buffer.clear();
+        this.vertexCount = 0;
+        this.building = false;
     }
 }

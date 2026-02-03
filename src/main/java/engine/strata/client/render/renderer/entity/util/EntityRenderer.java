@@ -6,6 +6,7 @@ import engine.helios.RenderLayer;
 import engine.helios.VertexFormat;
 import engine.strata.client.StrataClient;
 import engine.strata.client.render.RenderLayers;
+import engine.strata.client.render.animation.AnimationPlayer;
 import engine.strata.client.render.model.ModelManager;
 import engine.strata.client.render.model.StrataModel;
 import engine.strata.client.render.model.StrataSkin;
@@ -25,6 +26,7 @@ public abstract class EntityRenderer<T extends Entity> {
     protected final EntityRenderDispatcher dispatcher;
     private StrataModel model;
     private StrataSkin skin;
+    private AnimationPlayer animationPlayer;
     private boolean modelLoaded = false;
 
     public EntityRenderer(EntityRendererFactory.Context ctx) {

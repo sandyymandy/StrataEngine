@@ -29,8 +29,6 @@ public class ModelRenderer {
             String textureSlot = entry.getKey(); // e.g., "bia.png", "steve.png"
             StrataSkin.TextureData texData = entry.getValue();
 
-            LOGGER.debug("Rendering test model layer '{}' with texture: {}", textureSlot, texData.path());
-
             // Get the appropriate render layer
             RenderLayer layer = RenderLayers.getLayerForSlot(
                     texData.path(),

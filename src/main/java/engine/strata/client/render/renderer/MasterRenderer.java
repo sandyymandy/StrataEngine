@@ -29,6 +29,12 @@ import static engine.strata.util.math.Math.lerpAngle;
 public class MasterRenderer implements BasicRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger("MasterRenderer");
 
+    // Optimal buffer size: 4MB per layer (handles ~20-30 entities before flush)
+    private static final int BUFFER_SIZE = 4 * 1024 * 1024;
+
+    // Flush when buffer reaches 90% capacity
+    private static final float FLUSH_THRESHOLD = 0.90f;
+
     private final StrataClient client;
     private final Camera camera;
     private final MatrixStack poseStack;
@@ -39,6 +45,8 @@ public class MasterRenderer implements BasicRenderer {
     // Render layer management
     private final Map<RenderLayer, BufferBuilder> buffers = new HashMap<>();
     private final List<RenderLayer> renderOrder = new ArrayList<>();
+
+    private int flushesThisFrame = 0;
 
     private boolean isInThirdPerson = false;
 
@@ -58,7 +66,8 @@ public class MasterRenderer implements BasicRenderer {
 
     @Override
     public void render(float partialTicks, float deltaTime) {
-        // 1. Update camera
+        flushesThisFrame = 0;
+
         this.camera.update(client.getCameraEntity(), client.getWindow(), partialTicks, isInThirdPerson);
 
         // 2. Clear screen and prepare for rendering
@@ -74,6 +83,7 @@ public class MasterRenderer implements BasicRenderer {
 
         // 5. Render UI and overlays
         postRender(partialTicks, deltaTime);
+
     }
 
     /**
@@ -87,7 +97,6 @@ public class MasterRenderer implements BasicRenderer {
             return false;
         }
 
-        // Load view/projection matrices
         shaderStack.setUniform("u_Projection", camera.getProjectionMatrix());
         shaderStack.setUniform("u_View", camera.getViewMatrix());
 
@@ -100,18 +109,9 @@ public class MasterRenderer implements BasicRenderer {
     private void renderWorld(float partialTicks, float deltaTime) {
         this.client.getWindow().setRenderPhase("Render World");
 
-        // Clear previous frame's buffers
         clearBuffers();
-
-        // Render entities (populates buffers)
         renderEntities(partialTicks, deltaTime);
-
-        // Optional: Render test models for debugging
-        renderSceneCubes();
-        renderTestModel(); // Now uses proper render layers!
-
-        // Flush all accumulated geometry to GPU
-        flushBuffers();
+        flushBuffers(); // Final flush
     }
 
     /**
@@ -124,44 +124,35 @@ public class MasterRenderer implements BasicRenderer {
         }
 
         Entity cameraEntity = client.getCameraEntity();
-        float camX = (float) cameraEntity.getX();
-        float camY = (float) cameraEntity.getY();
-        float camZ = (float) cameraEntity.getZ();
 
-        // Render each entity
+        float camX = (float) lerp(cameraEntity.prevX, cameraEntity.getX(), partialTicks);
+        float camY = (float) lerp(cameraEntity.prevY, cameraEntity.getY(), partialTicks);
+        float camZ = (float) lerp(cameraEntity.prevZ, cameraEntity.getZ(), partialTicks);
+
         for (Entity entity : world.getEntities()) {
             EntityRenderer<Entity> renderer = entityRenderDispatcher.getRenderer(entity);
 
             if (renderer == null) {
-                continue; // No renderer registered for this entity type
+                continue;
             }
 
-            // Frustum culling
             if (!renderer.shouldRender(entity, camX, camY, camZ)) {
                 continue;
             }
 
-            // Interpolate position for smooth movement
+            checkBuffersBeforeRender();
+
             double x = lerp(entity.prevX, entity.getX(), partialTicks);
             double y = lerp(entity.prevY, entity.getY(), partialTicks);
             double z = lerp(entity.prevZ, entity.getZ(), partialTicks);
 
-            // Interpolate rotation
             float yaw = lerpAngle(entity.prevYaw, entity.getYaw(), partialTicks);
             float pitch = lerpAngle(entity.prevPitch, entity.getPitch(), partialTicks);
 
-            // Create entity pose stack
             MatrixStack entityPoseStack = new MatrixStack();
             entityPoseStack.push();
 
-            // Translate to entity position (relative to camera)
-            entityPoseStack.translate(
-                    (float) (x - camX),
-                    (float) (y - camY),
-                    (float) (z - camZ)
-            );
-
-            // Apply rotation
+            entityPoseStack.translate((float) x, (float) y, (float) z);
             entityPoseStack.rotate(yaw, 0, 1, 0);
             entityPoseStack.rotate(pitch, 1, 0, 0);
 
@@ -172,75 +163,55 @@ public class MasterRenderer implements BasicRenderer {
         }
     }
 
-    private void renderTestModel() {
-        // Try to load model once
-        if (!testModelLoadAttempted) {
-            testModelLoadAttempted = true;
-            try {
-                LOGGER.info("Loading test model...");
-                testModel = ModelManager.getModel(Identifier.ofEngine("bia"));
-                testSkin = ModelManager.getSkin(Identifier.ofEngine("bia"));
+    /**
+     * Checks all active buffers and flushes any that are nearly full.
+     * This prevents BufferOverflowException while maintaining batching efficiency.
+     */
+    private void checkBuffersBeforeRender() {
+        for (Map.Entry<RenderLayer, BufferBuilder> entry : buffers.entrySet()) {
+            BufferBuilder buffer = entry.getValue();
 
-                if (testModel != null && testSkin != null) {
-                    LOGGER.info("Successfully loaded test model!");
-                    LOGGER.info("Skin has {} texture slot(s)", testSkin.textures().size());
+            if (!buffer.isBuilding()) {
+                continue;
+            }
 
-                    // Log texture information
-                    testSkin.textures().forEach((slot, texData) -> {
-                        LOGGER.info("  Texture slot '{}': {} ({}x{})",
-                                slot, texData.path(), texData.width(), texData.height());
-                    });
-                }
-            } catch (Exception e) {
-                LOGGER.warn("Test model not available: {}", e.getMessage());
-                testModel = null;
-                testSkin = null;
+            float usage = buffer.getUsage();
+
+            if (usage > FLUSH_THRESHOLD) {
+                RenderLayer layer = entry.getKey();
+
+                // Flush this buffer
+                flushSingleBuffer(layer, buffer);
+                flushesThisFrame++;
+
+                // Start fresh
+                buffer.begin(VertexFormat.POSITION_TEXTURE_COLOR);
             }
         }
+    }
 
-        if (testModel == null || testSkin == null) {
+    /**
+     * Flushes a single buffer without affecting others.
+     */
+    private void flushSingleBuffer(RenderLayer layer, BufferBuilder buffer) {
+        if (!buffer.isBuilding() || buffer.getVertexCount() == 0) {
             return;
         }
 
-        poseStack.push();
-        poseStack.translate(0, 0, -5); // Position in front of camera
-        poseStack.scale(1.0f / 16.0f, 1.0f / 16.0f, 1.0f / 16.0f);
-
-        modelRenderer.render(testModel, testSkin, poseStack);
-
-        poseStack.pop();
-    }
-
-
-    private void renderSceneCubes() {
-        Tessellator tess = Tessellator.getInstance();
-        BufferBuilder builder = tess.getBuffer();
-
-        for (int x = -2; x <= 2; x++) {
-            for (int z = -5; z >= -10; z--) {
-                poseStack.push();
-                poseStack.translate(x, 0, z);
-
-                builder.begin(VertexFormat.POSITION_COLOR);
-                drawCube(builder, poseStack.peek(), (float) x / 2, 0, (float) z / 2);
-
-                poseStack.pop();
-                tess.draw();
-            }
-        }
+        layer.setup(camera);
+        Tessellator.getInstance().draw(buffer);
+        layer.clean();
     }
 
     @Override
     public void preRender(float partialTicks, float deltaTime) {
         this.client.getWindow().setRenderPhase("Pre Render");
-        // Clear with a nice sky blue
         RenderSystem.clear(0.5f, 0.7f, 0.9f, 1.0f);
     }
 
     @Override
     public void postRender(float partialTicks, float deltaTime) {
         this.client.getWindow().setRenderPhase("Post Render");
-        // UI rendering would go here
     }
 
     /**
@@ -253,19 +224,16 @@ public class MasterRenderer implements BasicRenderer {
                 // If still building from last frame, finish it
                 builder.end();
             }
+            builder.reset();
         }
     }
-
     /**
      * Flushes all accumulated geometry to the GPU.
      * This is where batched rendering happens.
      */
     private void flushBuffers() {
-        // Sort layers to ensure correct render order
-        // (e.g., opaque first, then translucent)
         List<Map.Entry<RenderLayer, BufferBuilder>> sortedEntries = new ArrayList<>(buffers.entrySet());
         sortedEntries.sort((a, b) -> {
-            // Render opaque before translucent
             boolean aTranslucent = a.getKey().isTranslucent();
             boolean bTranslucent = b.getKey().isTranslucent();
             if (aTranslucent != bTranslucent) {
@@ -274,23 +242,8 @@ public class MasterRenderer implements BasicRenderer {
             return 0;
         });
 
-        // Draw each layer
         for (Map.Entry<RenderLayer, BufferBuilder> entry : sortedEntries) {
-            RenderLayer layer = entry.getKey();
-            BufferBuilder builder = entry.getValue();
-
-            if (!builder.isBuilding() || builder.getVertexCount() == 0) {
-                continue; // Nothing to render
-            }
-
-            // Setup GL state for this layer (THIS IS WHERE TEXTURE BINDING HAPPENS!)
-            layer.setup(camera);
-
-            // Draw the batched geometry
-            Tessellator.getInstance().draw(builder);
-
-            // Cleanup GL state
-            layer.clean();
+            flushSingleBuffer(entry.getKey(), entry.getValue());
         }
     }
 
@@ -300,10 +253,8 @@ public class MasterRenderer implements BasicRenderer {
      */
     public BufferBuilder getBuffer(RenderLayer layer) {
         return buffers.computeIfAbsent(layer, l -> {
-            // 2MB buffer per layer
-            BufferBuilder buffer = new BufferBuilder(2097152);
+            BufferBuilder buffer = new BufferBuilder(BUFFER_SIZE);
             renderOrder.add(l);
-            LOGGER.debug("Created new buffer for layer: {}", layer.texture());
             return buffer;
         });
     }
@@ -338,62 +289,6 @@ public class MasterRenderer implements BasicRenderer {
         RenderLayers.clearCache();
         testModelLoadAttempted = false;
         LOGGER.info("Reloaded renderer resources");
-    }
-
-    private void drawCube(BufferBuilder builder, Matrix4f matrix, float x, float y, float z) {
-        // Front face
-        builder.vertex(matrix, x-0.5f, y-0.5f, z+0.5f).color(1, 0, 0, 1).end();
-        builder.vertex(matrix, x+0.5f, y-0.5f, z+0.5f).color(1, 0, 0, 1).end();
-        builder.vertex(matrix, x+0.5f, y+0.5f, z+0.5f).color(1, 0, 0, 1).end();
-
-        builder.vertex(matrix, x+0.5f, y+0.5f, z+0.5f).color(1, 0, 0, 1).end();
-        builder.vertex(matrix, x-0.5f, y+0.5f, z+0.5f).color(1, 0, 0, 1).end();
-        builder.vertex(matrix, x-0.5f, y-0.5f, z+0.5f).color(1, 0, 0, 1).end();
-
-        // Back face
-        builder.vertex(matrix, x+0.5f, y-0.5f, z-0.5f).color(0, 1, 0, 1).end();
-        builder.vertex(matrix, x-0.5f, y-0.5f, z-0.5f).color(0, 1, 0, 1).end();
-        builder.vertex(matrix, x-0.5f, y+0.5f, z-0.5f).color(0, 1, 0, 1).end();
-
-        builder.vertex(matrix, x-0.5f, y+0.5f, z-0.5f).color(0, 1, 0, 1).end();
-        builder.vertex(matrix, x+0.5f, y+0.5f, z-0.5f).color(0, 1, 0, 1).end();
-        builder.vertex(matrix, x+0.5f, y-0.5f, z-0.5f).color(0, 1, 0, 1).end();
-
-        // Top face
-        builder.vertex(matrix, x-0.5f, y+0.5f, z+0.5f).color(0, 0, 1, 1).end();
-        builder.vertex(matrix, x+0.5f, y+0.5f, z+0.5f).color(0, 0, 1, 1).end();
-        builder.vertex(matrix, x+0.5f, y+0.5f, z-0.5f).color(0, 0, 1, 1).end();
-
-        builder.vertex(matrix, x+0.5f, y+0.5f, z-0.5f).color(0, 0, 1, 1).end();
-        builder.vertex(matrix, x-0.5f, y+0.5f, z-0.5f).color(0, 0, 1, 1).end();
-        builder.vertex(matrix, x-0.5f, y+0.5f, z+0.5f).color(0, 0, 1, 1).end();
-
-        // Bottom face
-        builder.vertex(matrix, x-0.5f, y-0.5f, z-0.5f).color(1, 1, 0, 1).end();
-        builder.vertex(matrix, x+0.5f, y-0.5f, z-0.5f).color(1, 1, 0, 1).end();
-        builder.vertex(matrix, x+0.5f, y-0.5f, z+0.5f).color(1, 1, 0, 1).end();
-
-        builder.vertex(matrix, x+0.5f, y-0.5f, z+0.5f).color(1, 1, 0, 1).end();
-        builder.vertex(matrix, x-0.5f, y-0.5f, z+0.5f).color(1, 1, 0, 1).end();
-        builder.vertex(matrix, x-0.5f, y-0.5f, z-0.5f).color(1, 1, 0, 1).end();
-
-        // Right face
-        builder.vertex(matrix, x+0.5f, y-0.5f, z+0.5f).color(1, 0, 1, 1).end();
-        builder.vertex(matrix, x+0.5f, y-0.5f, z-0.5f).color(1, 0, 1, 1).end();
-        builder.vertex(matrix, x+0.5f, y+0.5f, z-0.5f).color(1, 0, 1, 1).end();
-
-        builder.vertex(matrix, x+0.5f, y+0.5f, z-0.5f).color(1, 0, 1, 1).end();
-        builder.vertex(matrix, x+0.5f, y+0.5f, z+0.5f).color(1, 0, 1, 1).end();
-        builder.vertex(matrix, x+0.5f, y-0.5f, z+0.5f).color(1, 0, 1, 1).end();
-
-        // Left face
-        builder.vertex(matrix, x-0.5f, y-0.5f, z-0.5f).color(0, 1, 1, 1).end();
-        builder.vertex(matrix, x-0.5f, y-0.5f, z+0.5f).color(0, 1, 1, 1).end();
-        builder.vertex(matrix, x-0.5f, y+0.5f, z+0.5f).color(0, 1, 1, 1).end();
-
-        builder.vertex(matrix, x-0.5f, y+0.5f, z+0.5f).color(0, 1, 1, 1).end();
-        builder.vertex(matrix, x-0.5f, y+0.5f, z-0.5f).color(0, 1, 1, 1).end();
-        builder.vertex(matrix, x-0.5f, y-0.5f, z-0.5f).color(0, 1, 1, 1).end();
     }
 
 }

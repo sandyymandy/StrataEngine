@@ -31,6 +31,10 @@ public class MatrixStack {
         stack.peek().scale(x, y, z);
     }
 
+    public void identity() {
+        stack.peek().identity();
+    }
+
     public Matrix4f peek() {
         return stack.peek();
     }

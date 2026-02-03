@@ -16,8 +16,6 @@ import engine.strata.util.Identifier;
 import java.util.Map;
 
 public class PlayerEntityRenderer extends EntityRenderer<PlayerEntity> {
-    private StrataModel model;
-    private Map<String, Identifier> skin;
 
     public PlayerEntityRenderer(EntityRendererFactory.Context ctx) {
         super(ctx);

@@ -1,5 +1,6 @@
 package engine.strata.world.gen;
 
+import engine.strata.client.StrataClient;
 import engine.strata.world.block.Blocks;
 import engine.strata.world.chunk.Chunk;
 import org.slf4j.Logger;
@@ -58,7 +59,7 @@ public class TerrainGenerator {
         }
 
         chunk.markGenerated();
-        LOGGER.debug("Generated terrain for {}", chunk);
+        if(StrataClient.getInstance().getDebugInfo().showWorldDebug()) LOGGER.debug("Generated terrain for {}", chunk);
     }
 
     /**

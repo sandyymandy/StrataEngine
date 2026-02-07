@@ -67,6 +67,10 @@ public class Window {
         applyMode(config.mode);
     }
 
+    public void setTitle(String title) {
+        glfwSetWindowTitle(handle, title);
+    }
+
     public long getHandle() {
         return handle;
     }

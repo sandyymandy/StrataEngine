@@ -1,6 +1,7 @@
-package engine.strata.client.render.model;
+package engine.strata.client.render.model.io;
 
 import com.google.gson.*;
+import engine.strata.client.render.model.StrataSkin;
 import engine.strata.core.io.ResourceManager;
 import engine.strata.util.Identifier;
 import org.slf4j.Logger;

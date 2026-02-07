@@ -69,4 +69,7 @@ public class Entity {
         return this.world;
     }
 
+    public float getWidth() {
+        return 1f;
+    }
 }

@@ -4,20 +4,22 @@ import engine.helios.*;
 import engine.strata.client.StrataClient;
 import engine.strata.client.render.Camera;
 import engine.strata.client.render.RenderLayers;
-import engine.strata.client.render.model.ModelManager;
-import engine.strata.client.render.model.StrataModel;
-import engine.strata.client.render.model.StrataSkin;
+import engine.strata.client.render.model.io.ModelManager;
 import engine.strata.client.render.renderer.entity.util.EntityRenderDispatcher;
 import engine.strata.client.render.renderer.entity.util.EntityRenderer;
 import engine.strata.client.render.util.BasicRenderer;
+import engine.strata.debug.DisplayDebugInfo;
 import engine.strata.entity.Entity;
 import engine.strata.util.Identifier;
 import engine.strata.world.World;
-import org.joml.Matrix4f;
+import engine.strata.world.chunk.render.ChunkRenderer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import static engine.strata.util.math.Math.lerp;
 import static engine.strata.util.math.Math.lerpAngle;
@@ -42,6 +44,12 @@ public class MasterRenderer implements BasicRenderer {
     private final GuiRenderer guiRenderer;
     private final EntityRenderDispatcher entityRenderDispatcher;
 
+    // Entity render distance
+    private static final float ENTITY_RENDER_DISTANCE = 120.0f;
+
+    // Chunk rendering
+    private ChunkRenderer chunkRenderer;
+
     // Render layer management
     private final Map<RenderLayer, BufferBuilder> buffers = new HashMap<>();
     private final List<RenderLayer> renderOrder = new ArrayList<>();
@@ -50,25 +58,40 @@ public class MasterRenderer implements BasicRenderer {
 
     private boolean isInThirdPerson = false;
 
-    // Test model fields
-    private StrataModel testModel;
-    private StrataSkin testSkin;
-    private boolean testModelLoadAttempted = false;
+    // Culling statistics
+    private int entitiesRendered = 0;
+    private int entitiesCulled = 0;
+
+    // Debug flags
+    private DisplayDebugInfo debug;
 
     public MasterRenderer(StrataClient client) {
         this.client = client;
-        this.camera = new Camera();
+        this.camera = client.getCamera();
         this.poseStack = new MatrixStack();
         this.modelRenderer = new ModelRenderer();
         this.guiRenderer = new GuiRenderer();
         this.entityRenderDispatcher = new EntityRenderDispatcher();
+        this.debug = client.getDebugInfo();
     }
+
+    /**
+     * Initializes chunk renderer after world is created.
+     * Call this after the world is set up.
+     */
+    public void initChunkRenderer(World world) {
+        this.chunkRenderer = new ChunkRenderer(world.getChunkManager());
+        LOGGER.info("Chunk renderer initialized");
+    }
+
 
     @Override
     public void render(float partialTicks, float deltaTime) {
         flushesThisFrame = 0;
+        entitiesRendered = 0;
+        entitiesCulled = 0;
 
-        this.camera.update(client.getCameraEntity(), client.getWindow(), partialTicks, isInThirdPerson);
+        this.camera.update(client.getPlayer(), client.getWindow(), partialTicks, isInThirdPerson);
 
         // 2. Clear screen and prepare for rendering
         preRender(partialTicks, deltaTime);
@@ -110,8 +133,31 @@ public class MasterRenderer implements BasicRenderer {
         this.client.getWindow().setRenderPhase("Render World");
 
         clearBuffers();
+
+        if (chunkRenderer != null) {
+            renderChunks(partialTicks);
+        }
+
         renderEntities(partialTicks, deltaTime);
+
         flushBuffers(); // Final flush
+    }
+
+    /**
+     * Renders chunks with frustum culling.
+     */
+    private void renderChunks(float partialTicks) {
+        if (chunkRenderer == null) {
+            return;
+        }
+
+        this.client.getWindow().setRenderPhase("Render Chunks");
+        chunkRenderer.render(camera, partialTicks);
+
+        if (debug.showRenderCullingDebug()) {
+            ChunkRenderer.RenderStats stats = chunkRenderer.getStats();
+            LOGGER.debug("Chunk rendering: {}", stats);
+        }
     }
 
     /**
@@ -136,15 +182,37 @@ public class MasterRenderer implements BasicRenderer {
                 continue;
             }
 
-            if (!renderer.shouldRender(entity, camX, camY, camZ)) {
-                continue;
-            }
-
-            checkBuffersBeforeRender();
-
+            // Interpolate entity position
             double x = lerp(entity.prevX, entity.getX(), partialTicks);
             double y = lerp(entity.prevY, entity.getY(), partialTicks);
             double z = lerp(entity.prevZ, entity.getZ(), partialTicks);
+
+            // Distance culling
+            float dx = (float) (x - camX);
+            float dy = (float) (y - camY);
+            float dz = (float) (z - camZ);
+            float distSq = dx * dx + dy * dy + dz * dz;
+
+            if (distSq > ENTITY_RENDER_DISTANCE * ENTITY_RENDER_DISTANCE) {
+                entitiesCulled++;
+                continue;
+            }
+
+            // Frustum culling - test entity bounding sphere
+            float entityRadius = entity.getWidth(); // Use entity width as approximate radius
+            if (!camera.isSphereVisible((float) x, (float) y, (float) z, entityRadius)) {
+                entitiesCulled++;
+                continue;
+            }
+
+            // Additional renderer-specific culling
+            if (!renderer.shouldRender(entity, camX, camY, camZ)) {
+                entitiesCulled++;
+                continue;
+            }
+
+            // Entity is visible, prepare to render
+            checkBuffersBeforeRender();
 
             float yaw = lerpAngle(entity.prevYaw, entity.getYaw(), partialTicks);
             float pitch = lerpAngle(entity.prevPitch, entity.getPitch(), partialTicks);
@@ -160,6 +228,12 @@ public class MasterRenderer implements BasicRenderer {
             renderer.render(entity, partialTicks, entityPoseStack);
 
             entityPoseStack.pop();
+            entitiesRendered++;
+        }
+
+        if (debug.showRenderCullingDebug()) {
+            LOGGER.debug("Entity rendering: {} rendered, {} culled",
+                    entitiesRendered, entitiesCulled);
         }
     }
 
@@ -280,6 +354,10 @@ public class MasterRenderer implements BasicRenderer {
         return isInThirdPerson;
     }
 
+    public ChunkRenderer getChunkRenderer() {
+        return chunkRenderer;
+    }
+
     /**
      * Reloads all rendering resources.
      * Call this when resource packs are changed.
@@ -287,7 +365,9 @@ public class MasterRenderer implements BasicRenderer {
     public void reload() {
         ModelManager.clearCache();
         RenderLayers.clearCache();
-        testModelLoadAttempted = false;
+        if (chunkRenderer != null) {
+            chunkRenderer.clearCache();
+        }
         LOGGER.info("Reloaded renderer resources");
     }
 

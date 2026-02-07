@@ -1,6 +1,9 @@
-package engine.strata.client.render.model;
+package engine.strata.client.render.model.io;
 
 import com.google.gson.*;
+import engine.strata.client.render.model.StrataBone;
+import engine.strata.client.render.model.StrataMeshData;
+import engine.strata.client.render.model.StrataModel;
 import engine.strata.core.io.ResourceManager;
 import engine.strata.util.Identifier;
 import org.joml.Vector3f;
@@ -40,7 +43,7 @@ public class StrataModelLoader {
             }
 
             // Parse meshes
-            Map<String, StrataModel.MeshData> meshes = new HashMap<>();
+            Map<String, StrataMeshData> meshes = new HashMap<>();
             JsonObject meshesObj = root.getAsJsonObject("meshes");
             if (meshesObj != null) {
                 for (Map.Entry<String, JsonElement> entry : meshesObj.entrySet()) {
@@ -52,8 +55,8 @@ public class StrataModelLoader {
 
             // Parse bones hierarchy
             JsonArray bonesArray = root.getAsJsonArray("bones");
-            Map<String, StrataModel.Bone> boneMap = new HashMap<>();
-            StrataModel.Bone rootBone = null;
+            Map<String, StrataBone> boneMap = new HashMap<>();
+            StrataBone rootBone = null;
 
             // First pass: create all bones
             for (JsonElement elem : bonesArray) {
@@ -71,7 +74,7 @@ public class StrataModelLoader {
                     }
                 }
 
-                StrataModel.Bone bone = new StrataModel.Bone(name, null, pivot, rotation, meshIds);
+                StrataBone bone = new StrataBone(name, null, pivot, rotation, meshIds);
                 boneMap.put(name, bone);
 
                 // The bone with parent=null is the root
@@ -84,11 +87,11 @@ public class StrataModelLoader {
             for (JsonElement elem : bonesArray) {
                 JsonObject boneObj = elem.getAsJsonObject();
                 String name = boneObj.get("name").getAsString();
-                StrataModel.Bone bone = boneMap.get(name);
+                StrataBone bone = boneMap.get(name);
 
                 if (!boneObj.get("parent").isJsonNull()) {
                     String parentName = boneObj.get("parent").getAsString();
-                    StrataModel.Bone parent = boneMap.get(parentName);
+                    StrataBone parent = boneMap.get(parentName);
                     if (parent != null) {
                         parent.addChild(bone);
                     }
@@ -112,7 +115,7 @@ public class StrataModelLoader {
     /**
      * Parses a mesh or cuboid from JSON.
      */
-    private static StrataModel.MeshData parseMesh(JsonObject meshObj) {
+    private static StrataMeshData parseMesh(JsonObject meshObj) {
         String type = meshObj.get("type").getAsString();
         String textureSlot = meshObj.get("texture").getAsString();
         Vector3f origin = parseVector3f(meshObj.getAsJsonArray("origin"));
@@ -125,7 +128,7 @@ public class StrataModelLoader {
             float inflate = meshObj.has("inflate") ? meshObj.get("inflate").getAsFloat() : 0;
 
             // 2. Parse Cuboid Faces
-            Map<String, StrataModel.CuboidFace> cuboidFaces = new HashMap<>();
+            Map<String, StrataMeshData.CuboidFace> cuboidFaces = new HashMap<>();
             JsonObject facesObj = meshObj.getAsJsonObject("faces");
             if (facesObj != null) {
                 for (Map.Entry<String, JsonElement> entry : facesObj.entrySet()) {
@@ -133,12 +136,12 @@ public class StrataModelLoader {
                     float[] uv = parseRawFloatArray(faceObj.getAsJsonArray("uv"));
                     int faceRotation = faceObj.has("face_rotation") ? faceObj.get("face_rotation").getAsInt() : 0;
 
-                    cuboidFaces.put(entry.getKey(), new StrataModel.CuboidFace(uv, faceRotation));
+                    cuboidFaces.put(entry.getKey(), new StrataMeshData.CuboidFace(uv, faceRotation));
                 }
             }
 
-            StrataModel.Cuboid cuboidData = new StrataModel.Cuboid(from, to, inflate, cuboidFaces);
-            return new StrataModel.MeshData(type, textureSlot, origin, rotation, null, cuboidData);
+            StrataMeshData.Cuboid cuboidData = new StrataMeshData.Cuboid(from, to, inflate, cuboidFaces);
+            return new StrataMeshData(type, textureSlot, origin, rotation, null, cuboidData);
 
         } else {
             // Original "blockbench_mesh" parsing logic
@@ -150,7 +153,7 @@ public class StrataModelLoader {
                 }
             }
 
-            Map<String, StrataModel.Face> meshFaces = new HashMap<>();
+            Map<String, StrataMeshData.Face> meshFaces = new HashMap<>();
             JsonObject facesObj = meshObj.getAsJsonObject("faces");
             if (facesObj != null) {
                 for (Map.Entry<String, JsonElement> entry : facesObj.entrySet()) {
@@ -163,12 +166,12 @@ public class StrataModelLoader {
                     for (Map.Entry<String, JsonElement> uvEntry : uvObj.entrySet()) {
                         uvs.put(uvEntry.getKey(), parseRawFloatArray(uvEntry.getValue().getAsJsonArray()));
                     }
-                    meshFaces.put(entry.getKey(), new StrataModel.Face(vertexIds, uvs));
+                    meshFaces.put(entry.getKey(), new StrataMeshData.Face(vertexIds, uvs));
                 }
             }
 
-            StrataModel.Mesh meshData = new StrataModel.Mesh(vertices, meshFaces);
-            return new StrataModel.MeshData(type, textureSlot, origin, rotation, meshData, null);
+            StrataMeshData.Mesh meshData = new StrataMeshData.Mesh(vertices, meshFaces);
+            return new StrataMeshData(type, textureSlot, origin, rotation, meshData, null);
         }
     }
 
@@ -220,26 +223,26 @@ public class StrataModelLoader {
         Vector3f to = new Vector3f(8, 8, 8);
 
         // 2. Define faces with default UVs [u1, v1, u2, v2]
-        Map<String, StrataModel.CuboidFace> faces = new HashMap<>();
+        Map<String, StrataMeshData.CuboidFace> faces = new HashMap<>();
         float[] defaultUv = new float[]{0, 0, 16, 16};
 
-        faces.put("north", new StrataModel.CuboidFace(defaultUv, 0));
-        faces.put("south", new StrataModel.CuboidFace(defaultUv, 0));
-        faces.put("west",  new StrataModel.CuboidFace(defaultUv, 0));
-        faces.put("up",    new StrataModel.CuboidFace(defaultUv, 0));
-        faces.put("down",  new StrataModel.CuboidFace(defaultUv, 0));
+        faces.put("north", new StrataMeshData.CuboidFace(defaultUv, 0));
+        faces.put("south", new StrataMeshData.CuboidFace(defaultUv, 0));
+        faces.put("west",  new StrataMeshData.CuboidFace(defaultUv, 0));
+        faces.put("up",    new StrataMeshData.CuboidFace(defaultUv, 0));
+        faces.put("down",  new StrataMeshData.CuboidFace(defaultUv, 0));
 
         // 3. Create the Cuboid data container
-        StrataModel.Cuboid cuboidData = new StrataModel.Cuboid(from, to, 0, faces);
+        StrataMeshData.Cuboid cuboidData = new StrataMeshData.Cuboid(from, to, 0, faces);
 
         // 4. Create the MeshData using the new two-variable constructor
-        Map<String, StrataModel.MeshData> meshes = new HashMap<>();
-        meshes.put("fallback_cuboid", new StrataModel.MeshData(
+        Map<String, StrataMeshData> meshes = new HashMap<>();
+        meshes.put("fallback_cuboid", new StrataMeshData(
                 "blockbench_cuboid", "main", new Vector3f(), new Vector3f(), null, cuboidData
         ));
 
         // 5. Build the bone hierarchy
-        StrataModel.Bone root = new StrataModel.Bone(
+        StrataBone root = new StrataBone(
                 "root", null, new Vector3f(0, 0, 0),
                 new Vector3f(0, 0, 0), Collections.singletonList("fallback_cuboid")
         );

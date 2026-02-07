@@ -6,6 +6,8 @@ import engine.helios.RenderLayer;
 import engine.helios.VertexFormat;
 import engine.strata.client.StrataClient;
 import engine.strata.client.render.RenderLayers;
+import engine.strata.client.render.model.StrataBone;
+import engine.strata.client.render.model.StrataMeshData;
 import engine.strata.client.render.model.StrataModel;
 import engine.strata.client.render.model.StrataSkin;
 import org.joml.Matrix4f;
@@ -43,7 +45,6 @@ public class ModelRenderer {
                 buffer.begin(VertexFormat.POSITION_TEXTURE_COLOR);
             }
 
-            // CRITICAL: Pass the texture slot filter so only matching meshes are rendered
             renderModel(model, skin, textureSlot, poseStack, buffer);
         }
     }
@@ -56,7 +57,7 @@ public class ModelRenderer {
         if (!builder.isBuilding()) {
             builder.begin(VertexFormat.POSITION_TEXTURE_COLOR);
         }
-        renderBone(model, skin, null, model.getRoot(), poseStack, builder);
+        renderBone(model, skin, null, model.getRoot(), poseStack, builder, new Matrix4f().identity());
     }
 
     /**
@@ -69,7 +70,7 @@ public class ModelRenderer {
         if (!builder.isBuilding()) {
             builder.begin(VertexFormat.POSITION_TEXTURE_COLOR);
         }
-        renderBone(model, skin, textureSlotFilter, model.getRoot(), poseStack, builder);
+        renderBone(model, skin, textureSlotFilter, model.getRoot(), poseStack, builder, new Matrix4f().identity());
     }
 
     /**
@@ -78,24 +79,34 @@ public class ModelRenderer {
      * @param textureSlotFilter If not null, only render meshes with this texture slot
      */
     private void renderBone(StrataModel model, StrataSkin skin, String textureSlotFilter,
-                            StrataModel.Bone bone, MatrixStack poseStack, BufferBuilder builder) {
+                            StrataBone bone, MatrixStack poseStack, BufferBuilder builder,
+                            Matrix4f parentModelMatrix) {
+
+        if (!bone.shouldRender()) {
+            return;
+        }
+
         poseStack.push();
 
-        // 1. Apply bone transformations
         Vector3f pivot = bone.getPivot();
         Vector3f rotation = bone.getRotation();
         Vector3f animRotation = bone.getAnimRotation();
         Vector3f animTranslation = bone.getAnimTranslation();
         Vector3f animScale = bone.getAnimScale();
 
+        // Handle position override (if set)
+        Vector3f finalTranslation = animTranslation;
+        if (bone.getPositionOverride() != null) {
+            finalTranslation = bone.getPositionOverride();
+        }
+
         // Move to pivot point
         poseStack.translate(pivot.x, pivot.y, pivot.z);
 
         // Apply animation translation
-        poseStack.translate(animTranslation.x, animTranslation.y, animTranslation.z);
+        poseStack.translate(finalTranslation.x, finalTranslation.y, finalTranslation.z);
 
         // Apply rotations (model rotation + animation rotation)
-        // Rotation order: Z -> Y -> X
         float totalRotZ = rotation.z + animRotation.z;
         float totalRotY = rotation.y + animRotation.y;
         float totalRotX = rotation.x + animRotation.x;
@@ -112,13 +123,21 @@ public class ModelRenderer {
         // Move back from pivot
         poseStack.translate(-pivot.x, -pivot.y, -pivot.z);
 
-        // 2. Render all meshes in this bone (filtered by texture slot)
+        // MATRIX TRACKING: Update matrices if tracking is enabled
+        if (bone.isTrackingMatrices()) {
+            updateBoneMatrices(bone, poseStack.peek(), parentModelMatrix);
+        }
+
+        // Calculate current model-space matrix for children
+        Matrix4f currentModelMatrix = new Matrix4f(parentModelMatrix).mul(poseStack.peek());
+
+        // Render meshes in this bone
         for (String meshId : bone.getMeshIds()) {
-            StrataModel.MeshData meshData = model.getMesh(meshId);
+            StrataMeshData meshData = model.getMesh(meshId);
             if (meshData != null) {
-                // CRITICAL FIX: Filter by texture slot if specified
+                // Filter by texture slot if specified
                 if (textureSlotFilter != null && !meshData.textureSlot().equals(textureSlotFilter)) {
-                    continue; // Skip this mesh, it uses a different texture
+                    continue;
                 }
 
                 if (meshData.type().equals("blockbench_cuboid")) {
@@ -129,16 +148,35 @@ public class ModelRenderer {
             }
         }
 
-        // 3. Render all child bones
-        for (StrataModel.Bone child : bone.getChildren()) {
-            renderBone(model, skin, textureSlotFilter, child, poseStack, builder);
+        // Render child bones
+        for (StrataBone child : bone.getChildren()) {
+            renderBone(model, skin, textureSlotFilter, child, poseStack, builder, currentModelMatrix);
         }
 
         poseStack.pop();
+
+        // Reset change flags after rendering
+        bone.resetStateChanges();
     }
 
-    private void renderCuboid(StrataModel model, StrataModel.MeshData meshData, StrataSkin skin, Matrix4f matrix, BufferBuilder builder) {
-        StrataModel.Cuboid cuboid = meshData.cuboid();
+    /**
+     * Updates bone transformation matrices for advanced features.
+     */
+    private void updateBoneMatrices(StrataBone bone, Matrix4f localMatrix, Matrix4f parentModelMatrix) {
+        // Local space matrix (relative to parent)
+        bone.setLocalSpaceMatrix(new Matrix4f(localMatrix));
+
+        // Model space matrix (relative to model root)
+        Matrix4f modelMatrix = new Matrix4f(parentModelMatrix).mul(localMatrix);
+        bone.setModelSpaceMatrix(modelMatrix);
+
+        // World space would be updated by EntityRenderer with entity position
+        // For now, just copy model space (will be fixed when entity renders)
+        bone.setWorldSpaceMatrix(new Matrix4f(modelMatrix));
+    }
+
+    private void renderCuboid(StrataModel model, StrataMeshData meshData, StrataSkin skin, Matrix4f matrix, BufferBuilder builder) {
+        StrataMeshData.Cuboid cuboid = meshData.cuboid();
         if (cuboid == null) return;
 
         // 1. Use a local copy of the matrix so transformations don't leak
@@ -221,8 +259,8 @@ public class ModelRenderer {
     /**
      * Renders a single mesh by triangulating faces and streaming to the buffer.
      */
-    private void renderMesh(StrataModel model, StrataModel.MeshData meshData, StrataSkin skin, Matrix4f matrix, BufferBuilder builder) {
-        StrataModel.Mesh mesh = meshData.mesh();
+    private void renderMesh(StrataModel model, StrataMeshData meshData, StrataSkin skin, Matrix4f matrix, BufferBuilder builder) {
+        StrataMeshData.Mesh mesh = meshData.mesh();
         if (mesh == null) return;
 
         // FIX: Prevent transformation leakage
@@ -236,9 +274,9 @@ public class ModelRenderer {
         localMatrix.translate(-origin.x, -origin.y, -origin.z);
 
         Map<String, Vector3f> vertices = mesh.vertices();
-        Map<String, StrataModel.Face> faces = mesh.faces();
+        Map<String, StrataMeshData.Face> faces = mesh.faces();
 
-        for (StrataModel.Face face : faces.values()) {
+        for (StrataMeshData.Face face : faces.values()) {
             List<String> ids = face.getVertexIds();
             Map<String, float[]> uvs = face.getUvs();
 

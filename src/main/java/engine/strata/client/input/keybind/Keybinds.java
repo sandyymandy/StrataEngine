@@ -43,4 +43,9 @@ public class Keybinds {
             Identifier.of("strata", "slow"),
             GLFW.GLFW_KEY_LEFT_CONTROL
     );
+
+    public static final Keybind DEBUG_RELOAD_CHUNKS = new Keybind(
+            Identifier.of("strata", "debug_chunks"),
+            GLFW.GLFW_KEY_P
+    );
 }

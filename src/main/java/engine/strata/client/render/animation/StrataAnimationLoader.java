@@ -9,6 +9,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
+import static org.joml.Math.toRadians;
+
 /**
  * Loads .stranim files containing multiple animations for a model.
  */
@@ -83,7 +85,7 @@ public class StrataAnimationLoader {
             boolean loop = obj.has("loop") && obj.get("loop").getAsBoolean();
 
             // Parse loop mode
-            StrataAnimation.LoopMode loopMode = StrataAnimation.LoopMode.RESTART;
+            StrataAnimation.LoopMode loopMode = StrataAnimation.LoopMode.LOOP;
             if (obj.has("loop_mode")) {
                 String mode = obj.get("loop_mode").getAsString().toUpperCase();
                 loopMode = StrataAnimation.LoopMode.valueOf(mode);
@@ -264,9 +266,9 @@ public class StrataAnimationLoader {
             return new Vector3f(0, 0, 0);
         }
         return new Vector3f(
-                (float) Math.toRadians(array.get(0).getAsFloat()),
-                (float) Math.toRadians(array.get(1).getAsFloat()),
-                (float) Math.toRadians(array.get(2).getAsFloat())
+                 toRadians(array.get(0).getAsFloat()),
+                toRadians(array.get(1).getAsFloat()),
+                toRadians(array.get(2).getAsFloat())
         );
     }
 
@@ -283,7 +285,7 @@ public class StrataAnimationLoader {
                 "idle",
                 1.0f,
                 true,
-                StrataAnimation.LoopMode.RESTART,
+                StrataAnimation.LoopMode.LOOP,
                 0.0f,
                 0.0f,
                 Collections.emptyMap(),

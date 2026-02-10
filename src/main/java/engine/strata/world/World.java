@@ -67,9 +67,9 @@ public class World {
      * Updates chunks around a player entity.
      */
     private void updateChunksAroundPlayer(Entity player) {
-        int playerChunkX = (int) Math.floor(player.getX() / Chunk.SIZE);
-        int playerChunkY = (int) Math.floor(player.getY() / Chunk.SIZE);
-        int playerChunkZ = (int) Math.floor(player.getZ() / Chunk.SIZE);
+        int playerChunkX = (int) Math.floor(player.getPosition().getX() / Chunk.SIZE);
+        int playerChunkY = (int) Math.floor(player.getPosition().getY() / Chunk.SIZE);
+        int playerChunkZ = (int) Math.floor(player.getPosition().getZ() / Chunk.SIZE);
 
         // Only update if player moved to a different chunk
         if (playerChunkX != lastPlayerChunkX ||

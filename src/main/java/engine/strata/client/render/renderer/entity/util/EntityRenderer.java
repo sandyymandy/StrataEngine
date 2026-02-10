@@ -61,7 +61,7 @@ public abstract class EntityRenderer<T extends Entity> {
 
         // Render all texture layers in priority order
         StrataClient.getInstance().getMasterRenderer()
-                .getModelRenderer().render(model, skin, poseStack);
+                .getModelRenderer().render(model, skin, poseStack, getAnimationController());
 
         poseStack.pop();
     }

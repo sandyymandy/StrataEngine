@@ -112,36 +112,36 @@ public class AnimationLayer {
             }
         }
 
-        // Update animation time
-        if (currentAnimation != null && isPlaying) {
-            animationTime += deltaTime * playbackSpeed;
-
-            // Handle looping
-            if (animationTime >= currentAnimation.duration()) {
-                if (shouldLoop) {
-                    switch (currentAnimation.loopMode()) {
-                        case RESTART:
-                            animationTime = animationTime % currentAnimation.duration();
-                            break;
-                        case PINGPONG:
-                            // Reverse playback direction
-                            playbackSpeed = -playbackSpeed;
-                            animationTime = currentAnimation.duration();
-                            break;
-                    }
-                    loopCount++;
-                } else {
-                    // Animation finished
-                    animationTime = currentAnimation.duration();
-                    isPlaying = false;
-                }
-            } else if (animationTime < 0 && currentAnimation.loopMode() == StrataAnimation.LoopMode.PINGPONG) {
-                // Ping-pong reached start
-                playbackSpeed = -playbackSpeed;
-                animationTime = 0;
-                loopCount++;
-            }
-        }
+//        // Update animation time
+//        if (currentAnimation != null && isPlaying) {
+//            animationTime += deltaTime * playbackSpeed;
+//
+//            // Handle looping
+//            if (animationTime >= currentAnimation.duration()) {
+//                if (shouldLoop) {
+//                    switch (currentAnimation.loopMode()) {
+//                        case LOOP:
+//                            animationTime = animationTime % currentAnimation.duration();
+//                            break;
+//                        case PINGPONG:
+//                            // Reverse playback direction
+//                            playbackSpeed = -playbackSpeed;
+//                            animationTime = currentAnimation.duration();
+//                            break;
+//                    }
+//                    loopCount++;
+//                } else {
+//                    // Animation finished
+//                    animationTime = currentAnimation.duration();
+//                    isPlaying = false;
+//                }
+//            } else if (animationTime < 0 && currentAnimation.loopMode() == StrataAnimation.LoopMode.PINGPONG) {
+//                // Ping-pong reached start
+//                playbackSpeed = -playbackSpeed;
+//                animationTime = 0;
+//                loopCount++;
+//            }
+//        }
     }
 
     /**

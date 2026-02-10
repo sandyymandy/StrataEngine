@@ -41,11 +41,14 @@ public class StrataModel {
         return 1.0f / textureUVHeight;
     }
 
-
     /**
-         * Mesh data loaded from the JSON file.
-         */
-
+     * Get a bone by ID.
+     */
+    public StrataBone getBone(String boneId) {
+        Map<String, StrataBone> boneMap = new HashMap<>();
+        collectBones(root, boneMap);
+        return boneMap.get(boneId);
+    }
 
     /**
      * Get mesh data by ID.

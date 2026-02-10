@@ -1,10 +1,15 @@
 package engine.strata.client.render.animation.core;
 
 import engine.strata.client.render.animation.AnimationManager;
+import engine.strata.client.render.animation.EasingUtil;
 import engine.strata.client.render.animation.StrataAnimation;
+import engine.strata.client.render.animation.StrataAnimation.*;
+import engine.strata.client.render.animation.blending.BlendMode;
 import engine.strata.client.render.animation.events.AnimationEventListener;
 import engine.strata.client.render.model.StrataModel;
+import engine.strata.client.render.renderer.ModelRenderer;
 import engine.strata.util.Identifier;
+import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,60 +18,44 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Manages animation playback state for an entity.
- * Handles animation layers, transitions, and state management.
  *
- * Key improvements over current system:
- * - Multiple concurrent animation layers (e.g., upper body + lower body)
- * - Smooth transition blending between animations
- * - State machine support for complex animation logic
- * - Decoupled from rendering (updates independently)
+ * <p><b>REDESIGNED ARCHITECTURE:</b>
+ * <ul>
+ *   <li>NO pre-computation of bone transforms</li>
+ *   <li>Computes transforms ON-DEMAND during rendering</li>
+ *   <li>Eliminates timing/sync issues between update and render</li>
+ *   <li>Cleaner separation: Controller manages TIME, Renderer requests TRANSFORMS</li>
+ * </ul>
  */
 public class AnimationController {
     private static final Logger LOGGER = LoggerFactory.getLogger("AnimationController");
 
     private final StrataModel model;
-    private final BoneAnimator animator;
     private final Map<String, AnimationLayer> layers = new LinkedHashMap<>();
     private final List<AnimationEventListener> eventListeners = new CopyOnWriteArrayList<>();
     private final List<AnimationCallback> callbacks = new CopyOnWriteArrayList<>();
-
-    // Masks per layer
     private final Map<String, AnimationMask> layerMasks = new HashMap<>();
 
-    // Default layer that always exists
     private static final String DEFAULT_LAYER = "base";
 
     public AnimationController(StrataModel model) {
         this.model = model;
-        this.animator = new BoneAnimator(model);
-
-        // Create default base layer
         layers.put(DEFAULT_LAYER, new AnimationLayer(DEFAULT_LAYER, 1.0f));
-
         LOGGER.debug("Created animation controller for model: {}", model.getId());
     }
 
-    /**
-     * Play an animation on the default layer
-     */
+    // ========================================================================
+    // ANIMATION PLAYBACK CONTROL
+    // ========================================================================
+
     public PlaybackHandle play(Identifier animationId, String animationName) {
         return play(animationId, animationName, DEFAULT_LAYER, 0.0f);
     }
-    /**
-     * Play an animation with a blend duration
-     */
+
     public PlaybackHandle play(Identifier animationId, String animationName, float blendDuration) {
         return play(animationId, animationName, DEFAULT_LAYER, blendDuration);
     }
 
-    /**
-     * Play an animation on a specific layer
-     *
-     * @param animationId The animation file identifier
-     * @param animationName The specific animation within the file
-     * @param layerName The layer to play on (created if doesn't exist)
-     * @param blendDuration How long to blend from current animation (seconds)
-     */
     public PlaybackHandle play(Identifier animationId, String animationName, String layerName, float blendDuration) {
         if (animationId == null || animationName == null || layerName == null) {
             LOGGER.error("Cannot play animation with null parameters");
@@ -79,7 +68,7 @@ public class AnimationController {
             return new PlaybackHandle(layerName, null);
         }
 
-        StrataAnimation.AnimationData animation = animFile.getAnimation(animationName);
+        AnimationData animation = animFile.getAnimation(animationName);
         if (animation == null) {
             LOGGER.error("Animation '{}' not found in '{}'", animationName, animationId);
             return new PlaybackHandle(layerName, null);
@@ -88,13 +77,9 @@ public class AnimationController {
         AnimationLayer layer = layers.computeIfAbsent(layerName,
                 name -> new AnimationLayer(name, 1.0f));
 
-        // Store previous animation for callbacks
-        StrataAnimation.AnimationData previousAnim = layer.getCurrentAnimation();
-
-        // Start playing
+        AnimationData previousAnim = layer.getCurrentAnimation();
         layer.playAnimation(animation, blendDuration);
 
-        // Fire callbacks
         fireAnimationStartCallbacks(layerName, animation);
         if (previousAnim != null && blendDuration > 0) {
             fireTransitionStartCallbacks(layerName, previousAnim, animation, blendDuration);
@@ -106,11 +91,6 @@ public class AnimationController {
         return new PlaybackHandle(layerName, animation);
     }
 
-
-
-    /**
-     * Stop animation on a specific layer
-     */
     public void stop(String layerName, float blendOutDuration) {
         AnimationLayer layer = layers.get(layerName);
         if (layer == null) {
@@ -118,25 +98,21 @@ public class AnimationController {
             return;
         }
 
-        StrataAnimation.AnimationData currentAnim = layer.getCurrentAnimation();
+        AnimationData currentAnim = layer.getCurrentAnimation();
         layer.stop(blendOutDuration);
 
-        // Fire callbacks
         if (currentAnim != null && !layer.isPlaying()) {
             fireAnimationEndCallbacks(layerName, currentAnim);
         }
     }
 
-    /**
-     * Stop all animations
-     */
     public void stopAll(float blendOutDuration) {
         for (Map.Entry<String, AnimationLayer> entry : layers.entrySet()) {
             String layerName = entry.getKey();
             AnimationLayer layer = entry.getValue();
 
             if (layer != null) {
-                StrataAnimation.AnimationData currentAnim = layer.getCurrentAnimation();
+                AnimationData currentAnim = layer.getCurrentAnimation();
                 layer.stop(blendOutDuration);
 
                 if (currentAnim != null && !layer.isPlaying()) {
@@ -146,253 +122,326 @@ public class AnimationController {
         }
     }
 
+    // ========================================================================
+    // CORE REDESIGN: ON-DEMAND TRANSFORM COMPUTATION
+    // ========================================================================
 
     /**
-     * Create or get an animation layer
+     * Gets the current animated transform for a specific bone.
      *
-     * @param name Layer name
-     * @param weight Layer blend weight (0-1)
-     * @return The animation layer
+     * <p><b>CRITICAL:</b> This is called DURING RENDERING, not before!
+     * The renderer calls this for each bone as it renders the hierarchy.
+     *
+     * @param boneName The bone to get transforms for
+     * @return The current transform, or null if no animation affects this bone
      */
-    public AnimationLayer getOrCreateLayer(String name, float weight) {
-        if (name == null) {
-            throw new IllegalArgumentException("Layer name cannot be null");
+    public ModelRenderer.BoneTransform getBoneTransform(String boneName) {
+        if (boneName == null) {
+            return null;
         }
-        return layers.computeIfAbsent(name, n -> new AnimationLayer(n, weight));
+
+        Vector3f finalRotation = new Vector3f(0, 0, 0);
+        Vector3f finalTranslation = new Vector3f(0, 0, 0);
+        Vector3f finalScale = new Vector3f(1, 1, 1);
+
+        float totalWeight = 0.0f;
+        boolean hasAnyAnimation = false;
+
+        // Iterate through all active layers
+        for (AnimationLayer layer : layers.values()) {
+            if (!layer.isActive()) {
+                continue;
+            }
+
+            AnimationMask mask = layerMasks.get(layer.getName());
+            if (mask != null && !mask.shouldAffect(boneName)) {
+                continue; // This layer doesn't affect this bone
+            }
+
+            // Sample current animation
+            if (layer.getCurrentAnimation() != null) {
+                float weight = layer.getBlendWeight();
+                if (weight > 0.001f) {
+                    BoneAnimData animData = sampleAnimation(
+                            layer.getCurrentAnimation(),
+                            boneName,
+                            layer.getAnimationTime()
+                    );
+
+                    if (animData != null) {
+                        blendInTransform(finalRotation, finalTranslation, finalScale,
+                                animData, weight, layer.getBlendMode(), totalWeight);
+                        totalWeight += weight;
+                        hasAnyAnimation = true;
+                    }
+                }
+            }
+
+            // Sample previous animation if transitioning
+            if (layer.isTransitioning() && layer.getPreviousAnimation() != null) {
+                float weight = layer.getPreviousBlendWeight();
+                if (weight > 0.001f) {
+                    BoneAnimData animData = sampleAnimation(
+                            layer.getPreviousAnimation(),
+                            boneName,
+                            layer.getAnimationTime()
+                    );
+
+                    if (animData != null) {
+                        blendInTransform(finalRotation, finalTranslation, finalScale,
+                                animData, weight, layer.getBlendMode(), totalWeight);
+                        totalWeight += weight;
+                        hasAnyAnimation = true;
+                    }
+                }
+            }
+        }
+
+        if (!hasAnyAnimation) {
+            return null; // No animation affects this bone
+        }
+
+        // Normalize for LINEAR blend mode if needed
+        if (totalWeight > 0 && totalWeight != 1.0f) {
+            // This happens with LINEAR blending when weights don't sum to 1
+            // We don't normalize for ADDITIVE or OVERRIDE modes
+        }
+
+        return new ModelRenderer.BoneTransform(finalRotation, finalTranslation, finalScale);
     }
 
+    /**
+     * Samples an animation at a specific time for a specific bone.
+     * Returns the interpolated transform values.
+     */
+    private BoneAnimData sampleAnimation(AnimationData animation, String boneName, float time) {
+        if (animation == null || animation.boneAnimations() == null) {
+            return null;
+        }
+
+        BoneAnimation boneAnim = animation.getBoneAnimation(boneName);
+        if (boneAnim == null) {
+            return null; // This animation doesn't animate this bone
+        }
+
+        Vector3f rotation = sampleRotation(boneAnim, time);
+        Vector3f translation = sampleTranslation(boneAnim, time);
+        Vector3f scale = sampleScale(boneAnim, time);
+
+        return new BoneAnimData(rotation, translation, scale);
+    }
 
     /**
-     * Set the weight of a layer (affects how much it influences final pose)
+     * Blends animation data into the final transform accumulator.
      */
-    public void setLayerWeight(String layerName, float weight) {
-        AnimationLayer layer = layers.get(layerName);
-        if (layer != null) {
-            layer.setWeight(weight);
-        } else {
-            LOGGER.warn("Attempted to set weight on non-existent layer: {}", layerName);
+    private void blendInTransform(Vector3f outRotation, Vector3f outTranslation, Vector3f outScale,
+                                  BoneAnimData animData, float weight, BlendMode blendMode,
+                                  float currentTotalWeight) {
+        switch (blendMode) {
+            case LINEAR -> {
+                // Linear interpolation
+                outRotation.lerp(animData.rotation, weight);
+                outTranslation.lerp(animData.translation, weight);
+                outScale.lerp(animData.scale, weight);
+            }
+            case ADDITIVE -> {
+                // Additive blending
+                outRotation.add(new Vector3f(animData.rotation).mul(weight));
+                outTranslation.add(new Vector3f(animData.translation).mul(weight));
+                outScale.add(new Vector3f(animData.scale).sub(1, 1, 1).mul(weight));
+            }
+            case OVERRIDE -> {
+                // Override mode - highest weight wins
+                if (weight > currentTotalWeight) {
+                    outRotation.set(animData.rotation);
+                    outTranslation.set(animData.translation);
+                    outScale.set(animData.scale);
+                }
+            }
         }
     }
 
-    /**
-     * Set an animation mask for a specific layer.
-     * The mask determines which bones the layer's animation affects.
-     *
-     * @param layerName The layer name
-     * @param mask The animation mask
-     */
-    public void setLayerMask(String layerName, AnimationMask mask) {
-        if (mask == null) {
-            layerMasks.remove(layerName);
-        } else {
-            layerMasks.put(layerName, mask);
+    // ========================================================================
+    // KEYFRAME SAMPLING (unchanged logic)
+    // ========================================================================
+
+    private Vector3f sampleRotation(BoneAnimation boneAnim, float time) {
+        if (!boneAnim.hasRotation()) {
+            return new Vector3f(0, 0, 0);
         }
-    }
 
-    /**
-     * Get the animation mask for a layer.
-     *
-     * @param layerName The layer name
-     * @return The mask, or null if no mask is set
-     */
-    public AnimationMask getLayerMask(String layerName) {
-        return layerMasks.get(layerName);
-    }
-
-    /**
-     * Check if any layer is currently playing an animation
-     */
-    public boolean isPlaying() {
-        return layers.values().stream().anyMatch(AnimationLayer::isActive);
-    }
-
-    /**
-     * Check if a specific layer is playing
-     */
-    public boolean isPlaying(String layerName) {
-        AnimationLayer layer = layers.get(layerName);
-        return layer != null && layer.isActive();
-    }
-
-    /**
-     * Check if a specific layer is playing
-     */
-    public boolean isPlaying(String layerName, String animName) {
-        AnimationLayer layer = layers.get(layerName);
-        return layer != null && layer.isActive() && layer.getCurrentAnimation().name().equals(animName);
-    }
-
-
-    /**
-     * Add an animation callback for lifecycle events.
-     *
-     * @param callback The callback to add
-     */
-    public void addCallback(AnimationCallback callback) {
-        if (callback != null && !callbacks.contains(callback)) {
-            callbacks.add(callback);
+        List<RotationKeyframe> keyframes = boneAnim.rotation();
+        if (keyframes.isEmpty()) {
+            return new Vector3f(0, 0, 0);
         }
-    }
 
-    /**
-     * Remove an animation callback.
-     *
-     * @param callback The callback to remove
-     */
-    public void removeCallback(AnimationCallback callback) {
-        callbacks.remove(callback);
-    }
-
-    /**
-     * Add an animation event listener.
-     *
-     * @param listener The listener to add
-     */
-    public void addEventListener(AnimationEventListener listener) {
-        if (listener != null && !eventListeners.contains(listener)) {
-            eventListeners.add(listener);
+        RotationKeyframe kf1 = null, kf2 = null;
+        for (int i = 0; i < keyframes.size() - 1; i++) {
+            if (time >= keyframes.get(i).getTimestamp() &&
+                    time <= keyframes.get(i + 1).getTimestamp()) {
+                kf1 = keyframes.get(i);
+                kf2 = keyframes.get(i + 1);
+                break;
+            }
         }
+
+        if (kf1 == null) {
+            if (time < keyframes.get(0).getTimestamp()) {
+                return new Vector3f(keyframes.get(0).getRotation());
+            } else {
+                return new Vector3f(keyframes.get(keyframes.size() - 1).getRotation());
+            }
+        }
+
+        float timeDiff = kf2.getTimestamp() - kf1.getTimestamp();
+        if (timeDiff <= 0.0001f) {
+            return new Vector3f(kf2.getRotation());
+        }
+
+        float t = (time - kf1.getTimestamp()) / timeDiff;
+        float easedT = EasingUtil.ease(t, kf2.getEasing());
+
+        return new Vector3f(kf1.getRotation()).lerp(kf2.getRotation(), easedT);
     }
 
-    /**
-     * Remove an animation event listener.
-     *
-     * @param listener The listener to remove
-     */
-    public void removeEventListener(AnimationEventListener listener) {
-        eventListeners.remove(listener);
+    private Vector3f sampleTranslation(BoneAnimation boneAnim, float time) {
+        if (!boneAnim.hasTranslation()) {
+            return new Vector3f(0, 0, 0);
+        }
+
+        List<TranslationKeyframe> keyframes = boneAnim.translation();
+        if (keyframes.isEmpty()) {
+            return new Vector3f(0, 0, 0);
+        }
+
+        TranslationKeyframe kf1 = null, kf2 = null;
+        for (int i = 0; i < keyframes.size() - 1; i++) {
+            if (time >= keyframes.get(i).getTimestamp() &&
+                    time <= keyframes.get(i + 1).getTimestamp()) {
+                kf1 = keyframes.get(i);
+                kf2 = keyframes.get(i + 1);
+                break;
+            }
+        }
+
+        if (kf1 == null) {
+            if (time < keyframes.get(0).getTimestamp()) {
+                return new Vector3f(keyframes.get(0).getTranslation());
+            } else {
+                return new Vector3f(keyframes.get(keyframes.size() - 1).getTranslation());
+            }
+        }
+
+        float timeDiff = kf2.getTimestamp() - kf1.getTimestamp();
+        if (timeDiff <= 0.0001f) {
+            return new Vector3f(kf2.getTranslation());
+        }
+
+        float t = (time - kf1.getTimestamp()) / timeDiff;
+        float easedT = EasingUtil.ease(t, kf2.getEasing());
+
+        return new Vector3f(kf1.getTranslation()).lerp(kf2.getTranslation(), easedT);
     }
 
-    /**
-     * Clear all callbacks and event listeners.
-     */
-    public void clearCallbacksAndListeners() {
-        callbacks.clear();
-        eventListeners.clear();
+    private Vector3f sampleScale(BoneAnimation boneAnim, float time) {
+        if (!boneAnim.hasScale()) {
+            return new Vector3f(1, 1, 1);
+        }
+
+        List<ScaleKeyframe> keyframes = boneAnim.scale();
+        if (keyframes.isEmpty()) {
+            return new Vector3f(1, 1, 1);
+        }
+
+        ScaleKeyframe kf1 = null, kf2 = null;
+        for (int i = 0; i < keyframes.size() - 1; i++) {
+            if (time >= keyframes.get(i).getTimestamp() &&
+                    time <= keyframes.get(i + 1).getTimestamp()) {
+                kf1 = keyframes.get(i);
+                kf2 = keyframes.get(i + 1);
+                break;
+            }
+        }
+
+        if (kf1 == null) {
+            if (time < keyframes.get(0).getTimestamp()) {
+                return new Vector3f(keyframes.get(0).getScale());
+            } else {
+                return new Vector3f(keyframes.get(keyframes.size() - 1).getScale());
+            }
+        }
+
+        float timeDiff = kf2.getTimestamp() - kf1.getTimestamp();
+        if (timeDiff <= 0.0001f) {
+            return new Vector3f(kf2.getScale());
+        }
+
+        float t = (time - kf1.getTimestamp()) / timeDiff;
+        float easedT = EasingUtil.ease(t, kf2.getEasing());
+
+        return new Vector3f(kf1.getScale()).lerp(kf2.getScale(), easedT);
     }
 
-    /**
-     * Update all animation layers (called every game tick)
-     *
-     * @param deltaTime Time since last update in seconds
-     */
+    // ========================================================================
+    // TIME UPDATE (called each tick)
+    // ========================================================================
+
     public void tick(float deltaTime) {
-        if (Float.isNaN(deltaTime) || Float.isInfinite(deltaTime) || deltaTime < 0) {
-            LOGGER.warn("Invalid deltaTime: {}, skipping tick", deltaTime);
-            return;
-        }
-
-        // Track previous state for event detection
-        Map<String, Float> previousTimes = new HashMap<>();
         Map<String, Integer> previousLoops = new HashMap<>();
         Map<String, Boolean> wasPlaying = new HashMap<>();
 
+        // Capture state before update
         for (Map.Entry<String, AnimationLayer> entry : layers.entrySet()) {
             AnimationLayer layer = entry.getValue();
-            if (layer != null && layer.isActive()) {
-                previousTimes.put(entry.getKey(), layer.getAnimationTime());
+            if (layer != null) {
                 previousLoops.put(entry.getKey(), layer.getLoopCount());
                 wasPlaying.put(entry.getKey(), layer.isPlaying());
             }
         }
 
-        // Update each layer's playback state
-        for (Map.Entry<String, AnimationLayer> entry : layers.entrySet()) {
-            String layerName = entry.getKey();
-            AnimationLayer layer = entry.getValue();
-
-            if (layer != null) {
-                boolean wasTransitioning = layer.isTransitioning();
-
+        // Update all layers
+        for (AnimationLayer layer : layers.values()) {
+            if (layer.isActive()) {
+                float prevTime = layer.getAnimationTime();
                 layer.tick(deltaTime);
+                float newTime = layer.getAnimationTime();
 
-                // Check for transition end
-                if (wasTransitioning && !layer.isTransitioning()) {
-                    fireTransitionEndCallbacks(layerName, layer.getCurrentAnimation());
+                // Process animation events
+                if (layer.getCurrentAnimation() != null) {
+                    processEventsInRange(layer.getCurrentAnimation(), layer.getName(),
+                            prevTime, newTime, layer.getLoopCount());
                 }
             }
         }
 
-        // Detect and fire animation events
-        processAnimationEvents(previousTimes, previousLoops);
-
-        // Detect animation loops and ends
+        // Process lifecycle events
         processLifecycleEvents(previousLoops, wasPlaying);
-
-        // Process all layers and update bone transforms (with masks)
-        animator.processLayers(layers.values(), layerMasks, deltaTime);
     }
 
-    /**
-     * Process animation events that occurred during this tick.
-     */
-    private void processAnimationEvents(Map<String, Float> previousTimes, Map<String, Integer> previousLoops) {
-        for (Map.Entry<String, AnimationLayer> entry : layers.entrySet()) {
-            String layerName = entry.getKey();
-            AnimationLayer layer = entry.getValue();
-
-            if (layer == null || !layer.isActive()) {
-                continue;
-            }
-
-            StrataAnimation.AnimationData animation = layer.getCurrentAnimation();
-            if (animation == null || animation.events() == null || animation.events().isEmpty()) {
-                continue;
-            }
-
-            float prevTime = previousTimes.getOrDefault(layerName, 0.0f);
-            float currTime = layer.getAnimationTime();
-            int currentLoop = layer.getLoopCount();
-            int prevLoop = previousLoops.getOrDefault(layerName, 0);
-
-            // Check if we looped - if so, process events from prevTime to duration and 0 to currTime
-            if (currentLoop > prevLoop) {
-                // Process events from prevTime to end of animation
-                processEventsInRange(animation, layerName, prevTime, animation.duration(), currentLoop);
-                // Process events from start to current time
-                processEventsInRange(animation, layerName, 0.0f, currTime, currentLoop);
-            } else {
-                // Normal case - process events in range
-                processEventsInRange(animation, layerName, prevTime, currTime, currentLoop);
-            }
-        }
-    }
-
-    /**
-     * Process events within a time range.
-     */
-    private void processEventsInRange(StrataAnimation.AnimationData animation, String layerName,
+    private void processEventsInRange(AnimationData animation, String layerName,
                                       float startTime, float endTime, int loopCount) {
-        for (StrataAnimation.AnimationEvent event : animation.events()) {
+        for (AnimationEvent event : animation.events()) {
             float eventTime = event.timestamp();
 
-            // Check if event falls within the time range
             if (eventTime > startTime && eventTime <= endTime) {
                 fireAnimationEvent(layerName, animation, event, loopCount);
             }
         }
     }
 
-    /**
-     * Process animation lifecycle events (loops, ends).
-     */
     private void processLifecycleEvents(Map<String, Integer> previousLoops, Map<String, Boolean> wasPlaying) {
         for (Map.Entry<String, AnimationLayer> entry : layers.entrySet()) {
             String layerName = entry.getKey();
             AnimationLayer layer = entry.getValue();
 
-            if (layer == null) {
-                continue;
-            }
+            if (layer == null) continue;
 
-            // Check for loop
             int prevLoop = previousLoops.getOrDefault(layerName, 0);
             int currLoop = layer.getLoopCount();
             if (currLoop > prevLoop && layer.getCurrentAnimation() != null) {
                 fireAnimationLoopCallbacks(layerName, layer.getCurrentAnimation(), currLoop);
             }
 
-            // Check for end
             boolean prevPlaying = wasPlaying.getOrDefault(layerName, false);
             if (prevPlaying && !layer.isPlaying() && !layer.isTransitioning() && layer.getCurrentAnimation() != null) {
                 fireAnimationEndCallbacks(layerName, layer.getCurrentAnimation());
@@ -400,7 +449,11 @@ public class AnimationController {
         }
     }
 
-    private void fireAnimationStartCallbacks(String layerName, StrataAnimation.AnimationData animation) {
+    // ========================================================================
+    // CALLBACKS & EVENTS (unchanged)
+    // ========================================================================
+
+    private void fireAnimationStartCallbacks(String layerName, AnimationData animation) {
         for (AnimationCallback callback : callbacks) {
             try {
                 callback.onAnimationStart(layerName, animation);
@@ -410,7 +463,7 @@ public class AnimationController {
         }
     }
 
-    private void fireAnimationLoopCallbacks(String layerName, StrataAnimation.AnimationData animation, int loopCount) {
+    private void fireAnimationLoopCallbacks(String layerName, AnimationData animation, int loopCount) {
         for (AnimationCallback callback : callbacks) {
             try {
                 callback.onAnimationLoop(layerName, animation, loopCount);
@@ -420,7 +473,7 @@ public class AnimationController {
         }
     }
 
-    private void fireAnimationEndCallbacks(String layerName, StrataAnimation.AnimationData animation) {
+    private void fireAnimationEndCallbacks(String layerName, AnimationData animation) {
         for (AnimationCallback callback : callbacks) {
             try {
                 callback.onAnimationEnd(layerName, animation);
@@ -430,8 +483,8 @@ public class AnimationController {
         }
     }
 
-    private void fireTransitionStartCallbacks(String layerName, StrataAnimation.AnimationData from,
-                                              StrataAnimation.AnimationData to, float duration) {
+    private void fireTransitionStartCallbacks(String layerName, AnimationData from,
+                                              AnimationData to, float duration) {
         for (AnimationCallback callback : callbacks) {
             try {
                 callback.onAnimationTransitionStart(layerName, from, to, duration);
@@ -441,7 +494,7 @@ public class AnimationController {
         }
     }
 
-    private void fireTransitionEndCallbacks(String layerName, StrataAnimation.AnimationData animation) {
+    private void fireTransitionEndCallbacks(String layerName, AnimationData animation) {
         for (AnimationCallback callback : callbacks) {
             try {
                 callback.onAnimationTransitionEnd(layerName, animation);
@@ -451,8 +504,8 @@ public class AnimationController {
         }
     }
 
-    private void fireAnimationEvent(String layerName, StrataAnimation.AnimationData animation,
-                                    StrataAnimation.AnimationEvent event, int loopCount) {
+    private void fireAnimationEvent(String layerName, AnimationData animation,
+                                    AnimationEvent event, int loopCount) {
         AnimationLayer layer = layers.get(layerName);
         float animTime = layer != null ? layer.getAnimationTime() : 0.0f;
 
@@ -468,49 +521,98 @@ public class AnimationController {
         }
     }
 
-    /**
-     * Get the current animation time for a layer
-     */
+    // ========================================================================
+    // UTILITY METHODS
+    // ========================================================================
+
+    public AnimationLayer getOrCreateLayer(String name, float weight) {
+        if (name == null) {
+            throw new IllegalArgumentException("Layer name cannot be null");
+        }
+        return layers.computeIfAbsent(name, n -> new AnimationLayer(n, weight));
+    }
+
+    public void setLayerWeight(String layerName, float weight) {
+        AnimationLayer layer = layers.get(layerName);
+        if (layer != null) {
+            layer.setWeight(weight);
+        } else {
+            LOGGER.warn("Attempted to set weight on non-existent layer: {}", layerName);
+        }
+    }
+
+    public void setLayerPlaybackSpeed(String layerName, float speed) {
+        AnimationLayer layer = layers.get(layerName);
+        if (layer != null) {
+            layer.setPlaybackSpeed(speed);
+        }
+    }
+
+    public void setLayerMask(String layerName, AnimationMask mask) {
+        if (mask == null) {
+            layerMasks.remove(layerName);
+        } else {
+            layerMasks.put(layerName, mask);
+        }
+    }
+
+    public AnimationMask getLayerMask(String layerName) {
+        return layerMasks.get(layerName);
+    }
+
+    public boolean isPlaying() {
+        return layers.values().stream().anyMatch(AnimationLayer::isActive);
+    }
+
+    public boolean isPlaying(String layerName) {
+        AnimationLayer layer = layers.get(layerName);
+        return layer != null && layer.isActive();
+    }
+
+    public boolean isPlaying(String layerName, String animName) {
+        AnimationLayer layer = layers.get(layerName);
+        return layer != null && layer.isActive() && layer.getCurrentAnimation().name().equals(animName);
+    }
+
     public float getAnimationTime(String layerName) {
         AnimationLayer layer = layers.get(layerName);
         return layer != null ? layer.getAnimationTime() : 0.0f;
     }
 
-    /**
-     * Get the current animation being played on a layer
-     */
-    public StrataAnimation.AnimationData getCurrentAnimation(String layerName) {
+    public AnimationData getCurrentAnimation(String layerName) {
         AnimationLayer layer = layers.get(layerName);
         return layer != null ? layer.getCurrentAnimation() : null;
     }
 
-    /**
-     * Get all registered layers
-     */
     public Collection<AnimationLayer> getLayers() {
         return Collections.unmodifiableCollection(layers.values());
     }
 
-    /**
-     * Get the bone animator (for advanced use cases)
-     */
-    public BoneAnimator getAnimator() {
-        return animator;
-    }
-
-    /**
-     * Reset all animations to their default state.
-     */
     public void reset() {
         stopAll(0.0f);
-        animator.reset();
         layerMasks.clear();
     }
 
+    public void addCallback(AnimationCallback callback) {
+        if (callback != null) {
+            callbacks.add(callback);
+        }
+    }
 
-    /**
-     * Get debug information about current state
-     */
+    public void removeCallback(AnimationCallback callback) {
+        callbacks.remove(callback);
+    }
+
+    public void addEventListener(AnimationEventListener listener) {
+        if (listener != null) {
+            eventListeners.add(listener);
+        }
+    }
+
+    public void removeEventListener(AnimationEventListener listener) {
+        eventListeners.remove(listener);
+    }
+
     public String getDebugInfo() {
         StringBuilder sb = new StringBuilder();
         sb.append("AnimationController[");
@@ -529,54 +631,37 @@ public class AnimationController {
         return sb.toString();
     }
 
-    /**
-     * Handle returned from play() methods for chaining operations.
-     * Allows fluent API like: controller.play(...).withMask(...).withWeight(...)
-     */
     public class PlaybackHandle {
         private final String layerName;
-        private final StrataAnimation.AnimationData animation;
+        private final AnimationData animation;
 
-        PlaybackHandle(String layerName, StrataAnimation.AnimationData animation) {
+        PlaybackHandle(String layerName, AnimationData animation) {
             this.layerName = layerName;
             this.animation = animation;
         }
 
-        /**
-         * Set an animation mask for this playback.
-         *
-         * @param mask The mask to apply
-         * @return This handle for chaining
-         */
         public PlaybackHandle withMask(AnimationMask mask) {
             setLayerMask(layerName, mask);
             return this;
         }
 
-        /**
-         * Set the layer weight.
-         *
-         * @param weight The weight (0-1)
-         * @return This handle for chaining
-         */
         public PlaybackHandle withWeight(float weight) {
             setLayerWeight(layerName, weight);
             return this;
         }
 
-        /**
-         * Get the layer name this animation is playing on.
-         */
         public String getLayerName() {
             return layerName;
         }
 
-        /**
-         * Get the animation data.
-         */
-        public StrataAnimation.AnimationData getAnimation() {
+        public AnimationData getAnimation() {
             return animation;
         }
     }
 
+    /**
+     * Simple data holder for bone animation data at a specific time.
+     */
+    private record BoneAnimData(Vector3f rotation, Vector3f translation, Vector3f scale) {
+    }
 }

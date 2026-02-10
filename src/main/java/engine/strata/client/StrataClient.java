@@ -57,7 +57,7 @@ public class StrataClient implements ClientModInitializer {
         this.world = new World("TestWorld", seed);
 
         this.player = EntityRegistry.PLAYER.create(world);
-        player.setPos(0, 70, 0); // Spawn above terrain
+        player.getPosition().set(0, 70, 0); // Spawn above terrain
 
         // 4. Create renderer
         this.masterRenderer = new MasterRenderer(this);
@@ -85,7 +85,7 @@ public class StrataClient implements ClientModInitializer {
 
         // Pre-load chunks around spawn
         LOGGER.info("Pre-loading spawn chunks...");
-        world.preloadChunks(player.getX(), player.getY(), player.getZ(), 5);
+        world.preloadChunks(player.getPosition().getX(), player.getPosition().getY(), player.getPosition().getZ(), 5);
 
         // Place some test blocks
         placeTestBlocks();
@@ -99,7 +99,7 @@ public class StrataClient implements ClientModInitializer {
         // Spawn some test zombies
         for (int i = 0; i < 20; i++) {
             BiaEntity bia = EntityRegistry.BIA.create(world);
-            bia.setPos(i * 2, 70, -5);
+            bia.getPosition().set(i * 2, 70, -5);
             world.addEntity(bia);
         }
     }
@@ -224,7 +224,7 @@ public class StrataClient implements ClientModInitializer {
         // Add debug keybinds
         if (Keybinds.DEBUG_RELOAD_CHUNKS != null && Keybinds.DEBUG_RELOAD_CHUNKS.isCanceled()) {
             LOGGER.info("Reloading chunks...");
-            world.preloadChunks(player.getX(), player.getY(), player.getZ(), 5);
+            world.preloadChunks(player.getPosition().getX(), player.getPosition().getY(), player.getPosition().getZ(), 5);
         }
     }
 
@@ -238,7 +238,7 @@ public class StrataClient implements ClientModInitializer {
                     "StrataEngine | Chunks: %d | Entities: %d | Pos: (%.1f, %.1f, %.1f)",
                     world.getChunkManager().getLoadedChunkCount(),
                     world.getEntityCount(),
-                    player.getX(), player.getY(), player.getZ()
+                    player.getPosition().getX(), player.getPosition().getY(), player.getPosition().getZ()
             ));
 
             lastDebugUpdate = now;

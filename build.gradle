@@ -46,6 +46,9 @@ dependencies {
 
     // Json
     implementation "com.google.code.gson:gson:$gsonVersion"
+
+    // The core Jolt-JNI library
+    implementation("com.github.stephengold:jolt-jni-Windows64:3.5.2")
 }
 
 // This forces the IDE to copy the natives correctly

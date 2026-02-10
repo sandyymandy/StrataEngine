@@ -172,8 +172,9 @@ public record StrataAnimation(
      * Loop modes for animations.
      */
     public enum LoopMode {
-        RESTART,    // Jump back to start when looping
-        PINGPONG    // Reverse direction when looping
+        LOOP,    // Jump back to start when looping
+        HOLD_AT_LAST_FRAME,
+        PLAY_ONCE
     }
 
     /**

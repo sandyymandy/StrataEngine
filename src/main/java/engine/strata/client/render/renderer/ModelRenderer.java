@@ -6,6 +6,7 @@ import engine.helios.RenderLayer;
 import engine.helios.VertexFormat;
 import engine.strata.client.StrataClient;
 import engine.strata.client.render.RenderLayers;
+import engine.strata.client.render.animation.core.AnimationController;
 import engine.strata.client.render.model.StrataBone;
 import engine.strata.client.render.model.StrataMeshData;
 import engine.strata.client.render.model.StrataModel;
@@ -21,14 +22,26 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Renders StrataModel instances by converting mesh data into vertex buffers.
+ * Renders StrataModel instances with integrated animation support.
+ *
+ * <p><b>REDESIGNED ARCHITECTURE:</b>
+ * <ul>
+ *   <li>Animation transforms are computed DURING rendering, not before</li>
+ *   <li>No more storing animation state on bones - it's all ephemeral</li>
+ *   <li>AnimationController provides current bone transforms on demand</li>
+ *   <li>Eliminates timing issues and vibration from pre-computed transforms</li>
+ * </ul>
  */
 public class ModelRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger("ModelRenderer");
 
-    public void render(StrataModel model, StrataSkin skin, MatrixStack poseStack) {
+    /**
+     * Renders a model with optional animation support.
+     * If animationController is null, renders in bind pose.
+     */
+    public void render(StrataModel model, StrataSkin skin, MatrixStack poseStack, AnimationController animationController) {
         for (Map.Entry<String, StrataSkin.TextureData> entry : skin.textures().entrySet()) {
-            String textureSlot = entry.getKey(); // e.g., "bia.png", "steve.png"
+            String textureSlot = entry.getKey();
             StrataSkin.TextureData texData = entry.getValue();
 
             // Get the appropriate render layer
@@ -45,19 +58,28 @@ public class ModelRenderer {
                 buffer.begin(VertexFormat.POSITION_TEXTURE_COLOR);
             }
 
-            renderModel(model, skin, textureSlot, poseStack, buffer);
+            renderModel(model, skin, textureSlot, poseStack, buffer, animationController);
         }
+    }
+
+    /**
+     * Legacy method for backward compatibility (no animation).
+     */
+    public void render(StrataModel model, StrataSkin skin, MatrixStack poseStack) {
+        render(model, skin, poseStack, null);
     }
 
     /**
      * Renders a model with a MatrixStack.
      * This renders ALL meshes (used when you have a single texture).
      */
-    public void renderModel(StrataModel model, StrataSkin skin, MatrixStack poseStack, BufferBuilder builder) {
+    public void renderModel(StrataModel model, StrataSkin skin, MatrixStack poseStack,
+                            BufferBuilder builder, AnimationController animationController) {
         if (!builder.isBuilding()) {
             builder.begin(VertexFormat.POSITION_TEXTURE_COLOR);
         }
-        renderBone(model, skin, null, model.getRoot(), poseStack, builder, new Matrix4f().identity());
+        renderBone(model, skin, null, model.getRoot(), poseStack, builder,
+                new Matrix4f().identity(), animationController);
     }
 
     /**
@@ -66,21 +88,25 @@ public class ModelRenderer {
      *
      * @param textureSlotFilter The texture slot to render (e.g., "bia.png", "steve.png")
      */
-    public void renderModel(StrataModel model, StrataSkin skin, String textureSlotFilter, MatrixStack poseStack, BufferBuilder builder) {
+    public void renderModel(StrataModel model, StrataSkin skin, String textureSlotFilter,
+                            MatrixStack poseStack, BufferBuilder builder, AnimationController animationController) {
         if (!builder.isBuilding()) {
             builder.begin(VertexFormat.POSITION_TEXTURE_COLOR);
         }
-        renderBone(model, skin, textureSlotFilter, model.getRoot(), poseStack, builder, new Matrix4f().identity());
+        renderBone(model, skin, textureSlotFilter, model.getRoot(), poseStack, builder,
+                new Matrix4f().identity(), animationController);
     }
 
     /**
      * Recursively renders a bone and all its children.
      *
+     *
      * @param textureSlotFilter If not null, only render meshes with this texture slot
+     * @param animationController If not null, provides animation transforms
      */
     private void renderBone(StrataModel model, StrataSkin skin, String textureSlotFilter,
                             StrataBone bone, MatrixStack poseStack, BufferBuilder builder,
-                            Matrix4f parentModelMatrix) {
+                            Matrix4f parentModelMatrix, AnimationController animationController) {
 
         if (!bone.shouldRender()) {
             return;
@@ -88,17 +114,30 @@ public class ModelRenderer {
 
         poseStack.push();
 
+        // Get static bone properties
         Vector3f pivot = bone.getPivot();
-        Vector3f rotation = bone.getRotation();
-        Vector3f animRotation = bone.getAnimRotation();
-        Vector3f animTranslation = bone.getAnimTranslation();
-        Vector3f animScale = bone.getAnimScale();
+        Vector3f staticRotation = bone.getRotation();
 
-        // Handle position override (if set)
-        Vector3f finalTranslation = animTranslation;
-        if (bone.getPositionOverride() != null) {
-            finalTranslation = bone.getPositionOverride();
+        // Get animation transforms DIRECTLY from controller (no caching on bone!)
+        Vector3f animRotation = new Vector3f(0, 0, 0);
+        Vector3f animTranslation = new Vector3f(0, 0, 0);
+        Vector3f animScale = new Vector3f(1, 1, 1);
+
+        if (animationController != null) {
+            // Request current animation state for this bone
+            BoneTransform transform = animationController.getBoneTransform(bone.getName());
+            if (transform != null) {
+                animRotation = transform.rotation();
+                animTranslation = transform.translation();
+                animScale = transform.scale();
+            }
         }
+
+        // Handle position override (if set) - for manual control
+        Vector3f finalTranslation = animTranslation;
+//        if (bone.getPositionOverride() != null) {
+//            finalTranslation = bone.getPositionOverride();
+//        }
 
         // Move to pivot point
         poseStack.translate(pivot.x, pivot.y, pivot.z);
@@ -107,9 +146,9 @@ public class ModelRenderer {
         poseStack.translate(finalTranslation.x, finalTranslation.y, finalTranslation.z);
 
         // Apply rotations (model rotation + animation rotation)
-        float totalRotZ = rotation.z + animRotation.z;
-        float totalRotY = rotation.y + animRotation.y;
-        float totalRotX = rotation.x + animRotation.x;
+        float totalRotZ = staticRotation.z + animRotation.z;
+        float totalRotY = staticRotation.y + animRotation.y;
+        float totalRotX = staticRotation.x + animRotation.x;
 
         if (totalRotZ != 0) poseStack.rotate(totalRotZ, 0, 0, 1);
         if (totalRotY != 0) poseStack.rotate(totalRotY, 0, 1, 0);
@@ -148,9 +187,10 @@ public class ModelRenderer {
             }
         }
 
-        // Render child bones
+        // Render child bones (pass animation controller down the hierarchy)
         for (StrataBone child : bone.getChildren()) {
-            renderBone(model, skin, textureSlotFilter, child, poseStack, builder, currentModelMatrix);
+            renderBone(model, skin, textureSlotFilter, child, poseStack, builder,
+                    currentModelMatrix, animationController);
         }
 
         poseStack.pop();
@@ -175,13 +215,16 @@ public class ModelRenderer {
         bone.setWorldSpaceMatrix(new Matrix4f(modelMatrix));
     }
 
-    private void renderCuboid(StrataModel model, StrataMeshData meshData, StrataSkin skin, Matrix4f matrix, BufferBuilder builder) {
+    // ========================================================================
+    // MESH RENDERING (unchanged from original)
+    // ========================================================================
+
+    private void renderCuboid(StrataModel model, StrataMeshData meshData, StrataSkin skin,
+                              Matrix4f matrix, BufferBuilder builder) {
         StrataMeshData.Cuboid cuboid = meshData.cuboid();
         if (cuboid == null) return;
 
-        // 1. Use a local copy of the matrix so transformations don't leak
         Matrix4f localMatrix = new Matrix4f(matrix);
-
         Vector3f origin = meshData.origin();
         Vector3f rotation = new Vector3f(meshData.rotation());
         Vector3f from = new Vector3f(cuboid.from());
@@ -191,22 +234,16 @@ public class ModelRenderer {
         float uScale = model.uScale();
         float vScale = model.vScale();
 
-        // 2. Apply inflation
-        if (inflate != 0) {
-            from.sub(inflate, inflate, inflate);
-            to.add(inflate, inflate, inflate);
-        }
+        from.sub(inflate, inflate, inflate);
+        to.add(inflate, inflate, inflate);
 
         float x0 = from.x, y0 = from.y, z0 = from.z;
         float x1 = to.x,   y1 = to.y,   z1 = to.z;
 
-        // 3. Apply Element Rotation around its Origin (Pivot)
-        // Order: Translate to Pivot -> Rotate -> Translate back
         localMatrix.translate(origin.x, origin.y, origin.z);
-        localMatrix.rotateZYX(rotation.z,rotation.y,rotation.x);
+        localMatrix.rotateZYX(rotation.z, rotation.y, rotation.x);
         localMatrix.translate(-origin.x, -origin.y, -origin.z);
 
-        // 4. Render faces with corrected winding order (CCW)
         cuboid.faces().forEach((name, face) -> {
             float[] uv = face.uv();
             float u1 = uv[0] * uScale;
@@ -215,60 +252,44 @@ public class ModelRenderer {
             float v2 = uv[3] * vScale;
 
             switch (name) {
-                // format: drawCuboidFace(matrix, builder, bottom-left, bottom-right, top-right, top-left, u1, v1, u2, v2)
-
-                case "north" -> // z0 plane
+                case "north" ->
                         drawCuboidFace(localMatrix, builder, x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, u1, v2, u2, v1);
-
-                case "south" -> // z1 plane
+                case "south" ->
                         drawCuboidFace(localMatrix, builder, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, u1, v2, u2, v1);
-
-                case "west"  -> // x0 plane
+                case "west" ->
                         drawCuboidFace(localMatrix, builder, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, u1, v2, u2, v1);
-
-                case "east"  -> // x1 plane
+                case "east" ->
                         drawCuboidFace(localMatrix, builder, x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, u1, v2, u2, v1);
-
-                case "up"    -> // y1 plane
+                case "up" ->
                         drawCuboidFace(localMatrix, builder, x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, u1, v2, u2, v1);
-
-                case "down"  -> // y0 plane
+                case "down" ->
                         drawCuboidFace(localMatrix, builder, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, u1, v2, u2, v1);
             }
         });
     }
 
-    /**
-     * Helper to draw a quad face (2 triangles) for the cuboid.
-     */
     private void drawCuboidFace(Matrix4f matrix, BufferBuilder builder,
                                 float x1, float y1, float z1, float x2, float y2, float z2,
                                 float x3, float y3, float z3, float x4, float y4, float z4,
                                 float u1, float v1, float u2, float v2) {
-        // Triangle 1
         builder.vertex(matrix, x1, y1, z1).tex(u1, v1).color(1, 1, 1, 1).end();
         builder.vertex(matrix, x2, y2, z2).tex(u2, v1).color(1, 1, 1, 1).end();
         builder.vertex(matrix, x3, y3, z3).tex(u2, v2).color(1, 1, 1, 1).end();
 
-        // Triangle 2
         builder.vertex(matrix, x1, y1, z1).tex(u1, v1).color(1, 1, 1, 1).end();
         builder.vertex(matrix, x3, y3, z3).tex(u2, v2).color(1, 1, 1, 1).end();
         builder.vertex(matrix, x4, y4, z4).tex(u1, v2).color(1, 1, 1, 1).end();
     }
 
-    /**
-     * Renders a single mesh by triangulating faces and streaming to the buffer.
-     */
-    private void renderMesh(StrataModel model, StrataMeshData meshData, StrataSkin skin, Matrix4f matrix, BufferBuilder builder) {
+    private void renderMesh(StrataModel model, StrataMeshData meshData, StrataSkin skin,
+                            Matrix4f matrix, BufferBuilder builder) {
         StrataMeshData.Mesh mesh = meshData.mesh();
         if (mesh == null) return;
 
-        // FIX: Prevent transformation leakage
         Matrix4f localMatrix = new Matrix4f(matrix);
         Vector3f origin = meshData.origin();
         Vector3f rotation = meshData.rotation();
 
-        // Apply local rotation at pivot
         localMatrix.translate(origin.x, origin.y, origin.z);
         localMatrix.rotateXYZ(rotation.x, rotation.y, rotation.z);
         localMatrix.translate(-origin.x, -origin.y, -origin.z);
@@ -282,65 +303,41 @@ public class ModelRenderer {
 
             if (ids.size() == 4) {
                 List<String> sortedIds = sortQuad(vertices, ids);
-                renderQuad(vertices, uvs, sortedIds.get(0), sortedIds.get(1), sortedIds.get(2), sortedIds.get(3), localMatrix, builder);
+                renderQuad(vertices, uvs, sortedIds.get(0), sortedIds.get(1),
+                        sortedIds.get(2), sortedIds.get(3), localMatrix, builder);
             } else if (ids.size() == 3) {
-                renderTriangle(vertices, uvs, ids.get(0), ids.get(1), ids.get(2), localMatrix, builder);
+                renderTriangle(vertices, uvs, ids.get(0), ids.get(1), ids.get(2),
+                        localMatrix, builder);
             }
         }
     }
 
-    /**
-     * Renders a single triangle.
-     */
     private void renderTriangle(Map<String, Vector3f> vertices, Map<String, float[]> uvs,
                                 String v1Id, String v2Id, String v3Id,
                                 Matrix4f matrix, BufferBuilder builder) {
-        // Get vertex positions
         Vector3f v1 = vertices.get(v1Id);
         Vector3f v2 = vertices.get(v2Id);
         Vector3f v3 = vertices.get(v3Id);
 
-        if (v1 == null || v2 == null || v3 == null) {
-            return; // Skip if any vertex is missing
-        }
+        if (v1 == null || v2 == null || v3 == null) return;
 
-        // Get UVs (or use default if missing)
         float[] uv1 = uvs.getOrDefault(v1Id, new float[]{0, 0});
         float[] uv2 = uvs.getOrDefault(v2Id, new float[]{1, 0});
         float[] uv3 = uvs.getOrDefault(v3Id, new float[]{1, 1});
 
-        // Vertex 1
-        builder.vertex(matrix, v1.x, v1.y, v1.z)
-                .tex(uv1[0], uv1[1])
-                .color(1, 1, 1, 1)
-                .end();
-
-        // Vertex 2
-        builder.vertex(matrix, v2.x, v2.y, v2.z)
-                .tex(uv2[0], uv2[1])
-                .color(1, 1, 1, 1)
-                .end();
-
-        // Vertex 3
-        builder.vertex(matrix, v3.x, v3.y, v3.z)
-                .tex(uv3[0], uv3[1])
-                .color(1, 1, 1, 1)
-                .end();
+        builder.vertex(matrix, v1.x, v1.y, v1.z).tex(uv1[0], uv1[1]).color(1, 1, 1, 1).end();
+        builder.vertex(matrix, v2.x, v2.y, v2.z).tex(uv2[0], uv2[1]).color(1, 1, 1, 1).end();
+        builder.vertex(matrix, v3.x, v3.y, v3.z).tex(uv3[0], uv3[1]).color(1, 1, 1, 1).end();
     }
 
     private void renderQuad(Map<String, Vector3f> vertices, Map<String, float[]> uvs,
                             String v1Id, String v2Id, String v3Id, String v4Id,
                             Matrix4f matrix, BufferBuilder builder) {
-
-        // Triangle 1: V1 -> V2 -> V3
         renderTriangle(vertices, uvs, v1Id, v2Id, v3Id, matrix, builder);
-
-        // Triangle 2: V3 -> V4 -> V1
         renderTriangle(vertices, uvs, v3Id, v4Id, v1Id, matrix, builder);
     }
 
     private List<String> sortQuad(Map<String, Vector3f> allVertices, List<String> faceIds) {
-        // 1. Fetch positions
         Vector3f v0 = allVertices.get(faceIds.get(0));
         Vector3f v1 = allVertices.get(faceIds.get(1));
         Vector3f v2 = allVertices.get(faceIds.get(2));
@@ -348,44 +345,47 @@ public class ModelRenderer {
 
         if (v0 == null || v1 == null || v2 == null || v3 == null) return faceIds;
 
-        // 2. Calculate Centroid (Center of the quad)
         Vector3f center = new Vector3f(v0).add(v1).add(v2).add(v3).div(4.0f);
-
-        // 3. Calculate Normal (Cross product of diagonals is robust for non-planar quads)
-        // Diagonal A: v0 -> v2, Diagonal B: v1 -> v3
         Vector3f diagA = new Vector3f(v2).sub(v0);
         Vector3f diagB = new Vector3f(v3).sub(v1);
         Vector3f normal = new Vector3f(diagA).cross(diagB).normalize();
-
-        // 4. Define a reference axis (Right vector)
         Vector3f right = new Vector3f(v0).sub(center).normalize();
-        // Calculate the Up vector perpendicular to Normal and Right
         Vector3f up = new Vector3f(normal).cross(right).normalize();
 
-        // 5. Create a list of pairs (Angle, ID)
         List<Map.Entry<Float, String>> sorted = new ArrayList<>();
 
         for (String id : faceIds) {
             Vector3f v = allVertices.get(id);
             Vector3f dir = new Vector3f(v).sub(center);
-
-            // Project onto our 2D plane defined by Right/Up
             float x = dir.dot(right);
             float y = dir.dot(up);
-
-            // Calculate angle (0 to 2PI)
             float angle = (float) Math.atan2(y, x);
             sorted.add(new AbstractMap.SimpleEntry<>(angle, id));
         }
 
-        // 6. Sort by angle (Counter-Clockwise)
         sorted.sort(Map.Entry.comparingByKey());
 
-        // Return just the IDs
         List<String> result = new ArrayList<>();
         for (Map.Entry<Float, String> entry : sorted) {
             result.add(entry.getValue());
         }
         return result;
+    }
+
+    /**
+     * Simple data class to hold bone transform data.
+     * Replaces the need to store this on StrataBone.
+     */
+    public static record BoneTransform(
+            Vector3f rotation,
+            Vector3f translation,
+            Vector3f scale
+    ) {
+        public BoneTransform {
+            // Defensive copy
+            rotation = new Vector3f(rotation);
+            translation = new Vector3f(translation);
+            scale = new Vector3f(scale);
+        }
     }
 }

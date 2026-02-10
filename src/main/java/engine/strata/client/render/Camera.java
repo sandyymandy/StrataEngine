@@ -52,9 +52,9 @@ public class Camera {
     public void update(Entity focusedEntity, Window window, float partialTick, boolean thirdPerson) {
         this.focusedEntity = focusedEntity;
 
-        double x = lerp(partialTick, focusedEntity.prevX, focusedEntity.getX());
-        double y = lerp(partialTick, focusedEntity.prevY, focusedEntity.getY()) + focusedEntity.getEyeHeight();
-        double z = lerp(partialTick, focusedEntity.prevZ, focusedEntity.getZ());
+        double x = lerp(partialTick, focusedEntity.prevX, focusedEntity.getPosition().getX());
+        double y = lerp(partialTick, focusedEntity.prevY, focusedEntity.getPosition().getY()) + focusedEntity.getEyeHeight();
+        double z = lerp(partialTick, focusedEntity.prevZ, focusedEntity.getPosition().getZ());
 
         this.setRotation(focusedEntity.getYaw(), focusedEntity.getPitch());
         this.setPos((float)x, (float)y, (float)z);
@@ -118,26 +118,26 @@ public class Camera {
         }
 
         if (Keybinds.RIGHT.isActive()) {
-            entity.setPosX(entity.getX() - sin * speed);
-            entity.setPosZ(entity.getZ() + cos * speed);
+            entity.getPosition().setX(entity.getPosition().getX() - sin * speed);
+            entity.getPosition().setZ(entity.getPosition().getZ() + cos * speed);
         }
         if (Keybinds.LEFT.isActive()) {
-            entity.setPosX(entity.getX() + sin * speed);
-            entity.setPosZ(entity.getZ() - cos * speed);
+            entity.getPosition().setX(entity.getPosition().getX() + sin * speed);
+            entity.getPosition().setZ(entity.getPosition().getZ() - cos * speed);
         }
         if (Keybinds.FORWARDS.isActive()) {
-            entity.setPosX(entity.getX() + cos * speed);
-            entity.setPosZ(entity.getZ() + sin * speed);
+            entity.getPosition().setX(entity.getPosition().getX() + cos * speed);
+            entity.getPosition().setZ(entity.getPosition().getZ() + sin * speed);
         }
         if (Keybinds.BACKWARDS.isActive()) {
-            entity.setPosX(entity.getX() - cos * speed);
-            entity.setPosZ(entity.getZ() - sin * speed);
+            entity.getPosition().setX(entity.getPosition().getX() - cos * speed);
+            entity.getPosition().setZ(entity.getPosition().getZ() - sin * speed);
         }
         if (Keybinds.UP.isActive()) {
-            entity.setPosY(entity.getY() + speed);
+            entity.getPosition().setY(entity.getPosition().getY() + speed);
         }
         if (Keybinds.DOWN.isActive()) {
-            entity.setPosY(entity.getY() - speed);
+            entity.getPosition().setY(entity.getPosition().getY() - speed);
         }
     }
 

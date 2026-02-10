@@ -13,6 +13,7 @@ import engine.strata.entity.Entity;
 import engine.strata.util.Identifier;
 import engine.strata.world.World;
 import engine.strata.world.chunk.render.ChunkRenderer;
+import org.joml.Matrix4f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -171,9 +172,9 @@ public class MasterRenderer implements BasicRenderer {
 
         Entity cameraEntity = client.getCameraEntity();
 
-        float camX = (float) lerp(cameraEntity.prevX, cameraEntity.getX(), partialTicks);
-        float camY = (float) lerp(cameraEntity.prevY, cameraEntity.getY(), partialTicks);
-        float camZ = (float) lerp(cameraEntity.prevZ, cameraEntity.getZ(), partialTicks);
+        float camX = (float) lerp(cameraEntity.prevX, cameraEntity.getPosition().getX(), partialTicks);
+        float camY = (float) lerp(cameraEntity.prevY, cameraEntity.getPosition().getY(), partialTicks);
+        float camZ = (float) lerp(cameraEntity.prevZ, cameraEntity.getPosition().getZ(), partialTicks);
 
         for (Entity entity : world.getEntities()) {
             EntityRenderer<Entity> renderer = entityRenderDispatcher.getRenderer(entity);
@@ -183,9 +184,9 @@ public class MasterRenderer implements BasicRenderer {
             }
 
             // Interpolate entity position
-            double x = lerp(entity.prevX, entity.getX(), partialTicks);
-            double y = lerp(entity.prevY, entity.getY(), partialTicks);
-            double z = lerp(entity.prevZ, entity.getZ(), partialTicks);
+            double x = lerp(entity.prevX, entity.getPosition().getX(), partialTicks);
+            double y = lerp(entity.prevY, entity.getPosition().getY(), partialTicks);
+            double z = lerp(entity.prevZ, entity.getPosition().getZ(), partialTicks);
 
             // Distance culling
             float dx = (float) (x - camX);

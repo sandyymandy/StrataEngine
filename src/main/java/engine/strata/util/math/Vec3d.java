@@ -1,6 +1,5 @@
 package engine.strata.util.math;
 
-import org.joml.Quaterniondc;
 import org.joml.Quaternionf;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
@@ -26,6 +25,14 @@ public class Vec3d {
 
     public Vec3d(Vector3f vector3f){
         this(vector3f.x(), vector3f.y(), vector3f.z());
+    }
+
+    public Vec3d(Vec3f vec3f){
+        this(vec3f.getX(), vec3f.getY(), vec3f.getZ());
+    }
+
+    public Vec3d(){
+        this(0, 0, 0);
     }
 
     public double getX() {
@@ -101,6 +108,10 @@ public class Vec3d {
 
     public Vector3f toVector3f(){
         return new Vector3f((float)x,(float)y,(float)z);
+    }
+
+    public Vec3f toVec3f(){
+        return new Vec3f(this);
     }
 
     public Vec3d rotate(Quaternionf quat) {

@@ -1,4 +1,4 @@
-package engine.strata.client.window;
+package engine.strata.client.frontend.window;
 
 public class WindowConfig {
     public int width;

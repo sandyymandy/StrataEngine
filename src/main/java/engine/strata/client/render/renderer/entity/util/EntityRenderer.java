@@ -8,19 +8,13 @@ import engine.strata.client.render.animation.core.AnimationController;
 import engine.strata.client.render.model.io.ModelManager;
 import engine.strata.client.render.model.StrataModel;
 import engine.strata.client.render.model.StrataSkin;
+import engine.strata.client.render.snapshot.EntityRenderSnapshot;
 import engine.strata.entity.Entity;
 import engine.strata.util.Identifier;
 
 /**
  * Base class for rendering entities using the StrataModel system.
  * Handles texture layers, batching, render order, and animations.
- *
- * <p><b>FIXED ISSUES:</b>
- * <ul>
- *   <li>✅ Corrected delta time calculation (was dividing partialTicks by 20)</li>
- *   <li>✅ Now uses proper tick duration (0.05 seconds)</li>
- *   <li>✅ Animations now progress at correct speed</li>
- * </ul>
  */
 public abstract class EntityRenderer<T extends Entity> {
     protected final EntityRenderDispatcher dispatcher;
@@ -36,28 +30,27 @@ public abstract class EntityRenderer<T extends Entity> {
     /**
      * The main method called every frame to render the entity.
      *
-     * @param entity       The entity instance
+     * @param snapshot       A snapshot of the entity that only has data
      * @param partialTicks The fraction of time between ticks (0.0 to 1.0) for smoothing
      * @param poseStack    The MatrixStack for position/rotation
      */
-    public void render(T entity, float partialTicks, MatrixStack poseStack) {
+    public void render(EntityRenderSnapshot snapshot, float partialTicks, MatrixStack poseStack) {
         // Lazy load model and skin on first render
         if (!modelLoaded) {
-            loadModel(entity);
+            loadModel(snapshot);
             if (model == null || skin == null) {
                 return; // Failed to load
             }
         }
 
-        updateAnimations(entity, partialTicks);
+        updateAnimations(snapshot, partialTicks);
 
         poseStack.push();
 
-        // Apply entity-specific transformations
-        applyTransformations(entity, partialTicks, poseStack);
-
         // Scale from model space (16x16x16) to world space (1x1x1)
         poseStack.scale(1.0f / 16.0f, 1.0f / 16.0f, 1.0f / 16.0f);
+
+        poseStack.scale(snapshot.getScale().getX(), snapshot.getScale().getY(), snapshot.getScale().getZ());
 
         // Render all texture layers in priority order
         StrataClient.getInstance().getMasterRenderer()
@@ -70,7 +63,7 @@ public abstract class EntityRenderer<T extends Entity> {
      * Loads the model, skin, and initializes the animation controller.
      * Override to customize loading behavior.
      */
-    protected void loadModel(T entity) {
+    protected void loadModel(EntityRenderSnapshot snapshot) {
         try {
             Identifier modelId = getModelId();
             model = ModelManager.getModel(modelId);
@@ -79,7 +72,7 @@ public abstract class EntityRenderer<T extends Entity> {
             // Initialize animation controller
             if (model != null) {
                 animationController = new AnimationController(model);
-                onAnimationControllerCreated(entity, animationController);
+                onAnimationControllerCreated(snapshot, animationController);
             }
 
             modelLoaded = true;
@@ -97,10 +90,10 @@ public abstract class EntityRenderer<T extends Entity> {
      * Called when the animation controller is created.
      * Override to setup animation layers, state machines, etc.
      *
-     * @param entity The entity being rendered
+     * @param snapshot The snapshot of the entity being rendered
      * @param controller The newly created animation controller
      */
-    protected void onAnimationControllerCreated(T entity, AnimationController controller) {
+    protected void onAnimationControllerCreated(EntityRenderSnapshot snapshot, AnimationController controller) {
         // Default: do nothing
         // Subclasses can override to:
         // - Create custom animation layers
@@ -132,10 +125,10 @@ public abstract class EntityRenderer<T extends Entity> {
      *   <li>Animations progress at the expected speed</li>
      * </ul>
      *
-     * @param entity The entity to animate
+     * @param snapshot The snapshot of the entity being rendered
      * @param partialTicks Sub-tick interpolation factor (used for smooth rendering, not animation timing)
      */
-    protected void updateAnimations(T entity, float partialTicks) {
+    protected void updateAnimations(EntityRenderSnapshot snapshot, float partialTicks) {
         if (animationController != null) {
             // CRITICAL FIX: Use actual tick duration instead of partialTicks/20
             //
@@ -157,23 +150,6 @@ public abstract class EntityRenderer<T extends Entity> {
     }
 
     /**
-     * Apply transformations specific to this entity type.
-     * Override to add custom animations, bobbing, etc.
-     */
-    protected void applyTransformations(T entity, float partialTicks, MatrixStack poseStack) {
-        // Default: no additional transformations
-        // Subclasses can override to add entity-specific behavior
-    }
-
-    /**
-     * Determines if a specific texture layer should be rendered.
-     * Override to implement conditional rendering (e.g., damage overlay, power-ups).
-     */
-    protected boolean shouldRenderLayer(T entity, String textureSlot) {
-        return true; // Render all layers by default
-    }
-
-    /**
      * Helper to get a buffer for a specific render layer.
      */
     protected BufferBuilder getBuffer(RenderLayer layer) {
@@ -185,14 +161,6 @@ public abstract class EntityRenderer<T extends Entity> {
      * Must be implemented by subclasses.
      */
     public abstract Identifier getModelId();
-
-    /**
-     * Checks if an entity should be rendered (frustum culling).
-     * Override for entities with special rendering rules.
-     */
-    public boolean shouldRender(T entity, float camX, float camY, float camZ) {
-        return entity.isInRange(camX, camY, camZ);
-    }
 
     // ============================================================================
     // Accessors

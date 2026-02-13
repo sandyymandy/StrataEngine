@@ -1,6 +1,6 @@
 package engine.strata.registry.registries;
 
-import engine.strata.entity.EntityKey;
+import engine.strata.entity.util.EntityKey;
 import engine.strata.registry.Registry;
 import engine.strata.world.block.Block;
 

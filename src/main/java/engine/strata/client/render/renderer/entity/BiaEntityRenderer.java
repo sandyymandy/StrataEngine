@@ -1,10 +1,10 @@
 package engine.strata.client.render.renderer.entity;
 
-import engine.helios.MatrixStack;
 import engine.strata.client.render.animation.core.AnimationController;
 import engine.strata.client.render.renderer.entity.util.EntityRenderer;
 import engine.strata.client.render.renderer.entity.util.EntityRendererFactory;
-import engine.strata.entity.BiaEntity;
+import engine.strata.client.render.snapshot.EntityRenderSnapshot;
+import engine.strata.entity.entities.BiaEntity;
 import engine.strata.util.Identifier;
 
 /**
@@ -29,8 +29,8 @@ public class BiaEntityRenderer extends EntityRenderer<BiaEntity> {
     }
 
     @Override
-    protected void updateAnimations(BiaEntity entity, float partialTicks) {
-        super.updateAnimations(entity, partialTicks);
+    protected void updateAnimations(EntityRenderSnapshot snapshot, float partialTicks) {
+        super.updateAnimations(snapshot, partialTicks);
 
         AnimationController controller = getAnimationController();
         if (controller == null) {
@@ -42,11 +42,11 @@ public class BiaEntityRenderer extends EntityRenderer<BiaEntity> {
 //        if (!controller.isPlaying("base")) {
 //            controller.play(getModelId(), "walk");
 //        }
-
-            if (!controller.isPlaying() ||
-                !"walk".equals(getCurrentAnimationName(controller))) {
-                controller.play(getModelId(), "walk", 0.2f);
-            }
+//
+//            if (!controller.isPlaying() ||
+//                !"walk".equals(getCurrentAnimationName(controller))) {
+//                controller.play(getModelId(), "walk", 0.2f);
+//            }
     }
 
     /**

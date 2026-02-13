@@ -1,7 +1,7 @@
 package engine.strata.client.render.renderer.entity.util;
 
 import engine.strata.entity.Entity;
-import engine.strata.entity.EntityKey;
+import engine.strata.entity.util.EntityKey;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -25,8 +25,7 @@ public class EntityRenderDispatcher {
     }
 
     @SuppressWarnings("unchecked")
-    public <T extends Entity> EntityRenderer<T> getRenderer(T entity) {
-        EntityKey<?> key = entity.getKey();
+    public <T extends Entity> EntityRenderer<T> getRenderer(EntityKey<?> key) {
         EntityRenderer<?> renderer = renderers.get(key);
 
         // If not found in local cache, try to pull it from the Registry now

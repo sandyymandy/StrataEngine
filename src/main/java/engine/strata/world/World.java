@@ -1,8 +1,12 @@
 package engine.strata.world;
 
+import com.github.stephengold.joltjni.*;
+import com.github.stephengold.joltjni.enumerate.EActivation;
+import com.github.stephengold.joltjni.enumerate.EMotionType;
 import engine.strata.client.StrataClient;
 import engine.strata.entity.Entity;
-import engine.strata.entity.PlayerEntity;
+import engine.strata.entity.entities.PlayerEntity;
+import engine.strata.physics.JoltLoader;
 import engine.strata.world.block.Block;
 import engine.strata.world.chunk.Chunk;
 import engine.strata.world.chunk.ChunkManager;

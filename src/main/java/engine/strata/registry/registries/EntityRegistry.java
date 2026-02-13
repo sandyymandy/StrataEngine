@@ -1,9 +1,9 @@
 package engine.strata.registry.registries;
 
 import engine.strata.entity.Entity;
-import engine.strata.entity.EntityKey;
-import engine.strata.entity.PlayerEntity;
-import engine.strata.entity.BiaEntity;
+import engine.strata.entity.util.EntityKey;
+import engine.strata.entity.entities.PlayerEntity;
+import engine.strata.entity.entities.BiaEntity;
 import engine.strata.registry.Registry;
 import engine.strata.util.Identifier;
 

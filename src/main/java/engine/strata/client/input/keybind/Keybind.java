@@ -1,8 +1,6 @@
 package engine.strata.client.input.keybind;
 
-import engine.strata.client.StrataClient;
 import engine.strata.client.input.InputState;
-import engine.strata.client.input.InputSystem;
 import engine.strata.util.Identifier;
 
 public final class Keybind {
@@ -10,23 +8,16 @@ public final class Keybind {
     public final Identifier id;
     public final int key; // GLFW_KEY_*
     private InputState state = InputState.IDLE;
-
-    // Internal tracking
     private boolean isDown = false;
 
     public Keybind(Identifier id, int key) {
         this.id = id;
         this.key = key;
-
-        InputSystem.register(this);
+        Keybinds.registerInternal(this);
     }
 
-    public void onPress() {
-        isDown = true;
-    }
-
-    public void onRelease() {
-        isDown = false;
+    public void setPressed(boolean pressed) {
+        this.isDown = pressed;
     }
 
     public void update() {
@@ -42,19 +33,9 @@ public final class Keybind {
         }
     }
 
-    public boolean isIdle(){
-        return state.equals(InputState.IDLE);
-    }
-
-    public boolean isInitiated(){
-        return state.equals(InputState.INITIATED);
-    }
-
-    public boolean isActive(){
-        return state.equals(InputState.ACTIVE);
-    }
-
-    public boolean isCanceled(){
-        return state.equals(InputState.CANCELED);
-    }
+    // Getters
+    public boolean isIdle() { return state == InputState.IDLE; }
+    public boolean isInitiated() { return state == InputState.INITIATED; }
+    public boolean isActive() { return state == InputState.ACTIVE; }
+    public boolean isCanceled() { return state == InputState.CANCELED; }
 }

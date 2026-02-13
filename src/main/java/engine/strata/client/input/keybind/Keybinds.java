@@ -3,7 +3,20 @@ package engine.strata.client.input.keybind;
 import engine.strata.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class Keybinds {
+    private static final List<Keybind> REGISTRY = new ArrayList<>();
+
+    public static void registerInternal(Keybind bind) {
+        REGISTRY.add(bind);
+    }
+
+    public static List<Keybind> getRegisteredBinds() {
+        return REGISTRY;
+    }
+
     public static final Keybind HIDE_CURSOR = new Keybind(
             Identifier.of("strata", "hide_cursor"),
             GLFW.GLFW_KEY_ESCAPE

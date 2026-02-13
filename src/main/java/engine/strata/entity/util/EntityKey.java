@@ -1,6 +1,6 @@
-package engine.strata.entity;
+package engine.strata.entity.util;
 
-import engine.strata.util.Identifier;
+import engine.strata.entity.Entity;
 import engine.strata.world.World;
 
 public class EntityKey<T extends Entity> {

@@ -3,9 +3,8 @@ package engine.strata.client.render;
 import engine.strata.client.StrataClient;
 import engine.strata.client.input.keybind.Keybinds;
 import engine.strata.entity.Entity;
-import engine.strata.entity.PlayerEntity;
 import org.joml.*;
-import engine.strata.client.window.Window;
+import engine.strata.client.frontend.window.Window;
 
 import java.lang.Math;
 

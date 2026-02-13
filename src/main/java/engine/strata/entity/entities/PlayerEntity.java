@@ -1,5 +1,7 @@
-package engine.strata.entity;
+package engine.strata.entity.entities;
 
+import engine.strata.entity.Entity;
+import engine.strata.entity.util.EntityKey;
 import engine.strata.world.World;
 
 public class PlayerEntity extends Entity {

@@ -1,34 +1,43 @@
 package engine.strata.client.input;
 
 import engine.strata.client.input.keybind.Keybind;
+import engine.strata.client.input.keybind.Keybinds;
+import engine.strata.event.events.KeyEvent;
 import org.lwjgl.glfw.GLFW;
-
 import java.util.HashMap;
 import java.util.Map;
 
 public final class InputSystem {
+    private final Map<Integer, Keybind> keybinds = new HashMap<>();
 
-    private static final Map<Integer, Keybind> KEYBINDS = new HashMap<>();
-
-    public static void register(Keybind keybind) {
-        KEYBINDS.put(keybind.key, keybind);
-    }
-
-    public static void handleKeyEvent(int key, int action) {
-        Keybind bind = KEYBINDS.get(key);
-        if (bind == null) return;
-
-        if (action == GLFW.GLFW_PRESS) {
-            bind.onPress();
-        } else if (action == GLFW.GLFW_RELEASE) {
-            bind.onRelease();
+    public InputSystem() {
+        // Automatically pull every keybind defined in Keybinds.java
+        for (Keybind bind : Keybinds.getRegisteredBinds()) {
+            this.register(bind);
         }
     }
 
-    public static void update() {
-        for (Keybind bind : KEYBINDS.values()) {
+    public void register(Keybind keybind) {
+        keybinds.put(keybind.key, keybind);
+    }
+
+    /**
+     * Called by the EventBus during the Logic Tick.
+     */
+    public void handleKeyEvent(KeyEvent event) {
+        Keybind bind = keybinds.get(event.key());
+        if (bind == null) return;
+
+        if (event.action() == GLFW.GLFW_PRESS) {
+            bind.setPressed(true);
+        } else if (event.action() == GLFW.GLFW_RELEASE) {
+            bind.setPressed(false);
+        }
+    }
+
+    public void update() {
+        for (Keybind bind : keybinds.values()) {
             bind.update();
         }
     }
 }
-

@@ -2,7 +2,6 @@ package engine.strata.client.render.animation.core;
 
 import engine.strata.client.render.animation.StrataAnimation;
 import engine.strata.client.render.animation.blending.BlendMode;
-import org.apache.logging.slf4j.Log4jLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

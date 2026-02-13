@@ -1,7 +1,7 @@
 package engine.strata.client.render.renderer.entity.util;
 
 import engine.strata.entity.Entity;
-import engine.strata.entity.EntityKey;
+import engine.strata.entity.util.EntityKey;
 
 import java.util.HashMap;
 import java.util.Map;

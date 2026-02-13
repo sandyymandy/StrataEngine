@@ -1,7 +1,8 @@
-package engine.strata.client.window;
+package engine.strata.client.frontend.window;
 
 import engine.strata.client.StrataClient;
 import engine.strata.client.input.InputSystem;
+import engine.strata.event.events.KeyEvent;
 import org.lwjgl.glfw.GLFWVidMode;
 import org.lwjgl.opengl.GL;
 
@@ -15,6 +16,8 @@ public class Window {
     private final WindowConfig config;
     private int width, height;
     private String renderPhase = "";
+    private boolean needsCursorUpdate = false;
+    private boolean cursorLocked = false;
 
     public Window(WindowConfig config) {
         this.config = config;
@@ -54,7 +57,7 @@ public class Window {
         });
 
         glfwSetKeyCallback(handle, ((window, key, scancode, action, mods) -> {
-            InputSystem.handleKeyEvent(key, action);
+            StrataClient.getInstance().getEventBus().post(new KeyEvent(key, action, mods));
         }));
 
         glfwSetWindowPos(handle, config.x, config.y);
@@ -199,12 +202,24 @@ public class Window {
         glfwSwapBuffers(handle);
     }
 
-    public void lockCursor() {
-        glfwSetInputMode(handle, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    public void updateCursorMode() {
+        if (needsCursorUpdate) {
+            if (cursorLocked) {
+                glfwSetInputMode(handle, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            } else {
+                glfwSetInputMode(handle, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            }
+            needsCursorUpdate = false;
+        }
     }
 
-    public void unlockCursor() {
-        glfwSetInputMode(handle, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    public void setCursorLocked(boolean locked) {
+        this.cursorLocked = locked;
+        this.needsCursorUpdate = true;
+    }
+
+    public boolean isCursorLocked() {
+        return cursorLocked;
     }
 
     public double getMouseX() {

@@ -73,6 +73,11 @@ public abstract class SpatialObject {
         this.isDirty = true;
     }
 
+    public void setScale(float x, float y, float z) {
+        this.scale.set(x, y, z);
+        this.isDirty = true;
+    }
+
     // ==========================================
     //           MATRIX CALCULATION
     // ==========================================

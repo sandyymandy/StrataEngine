@@ -7,13 +7,12 @@ import engine.strata.client.render.RenderLayers;
 import engine.strata.client.render.model.io.ModelManager;
 import engine.strata.client.render.renderer.entity.util.EntityRenderDispatcher;
 import engine.strata.client.render.renderer.entity.util.EntityRenderer;
-import engine.strata.client.render.util.BasicRenderer;
+import engine.strata.client.render.snapshot.EntityRenderSnapshot;
 import engine.strata.debug.DisplayDebugInfo;
 import engine.strata.entity.Entity;
 import engine.strata.util.Identifier;
 import engine.strata.world.World;
 import engine.strata.world.chunk.render.ChunkRenderer;
-import org.joml.Matrix4f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,7 +28,7 @@ import static engine.strata.util.math.Math.lerpAngle;
  * Master renderer that coordinates all rendering passes.
  * Manages render layers, batching, and the rendering pipeline.
  */
-public class MasterRenderer implements BasicRenderer {
+public class MasterRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger("MasterRenderer");
 
     // Optimal buffer size: 4MB per layer (handles ~20-30 entities before flush)
@@ -66,14 +65,14 @@ public class MasterRenderer implements BasicRenderer {
     // Debug flags
     private DisplayDebugInfo debug;
 
-    public MasterRenderer(StrataClient client) {
+    public MasterRenderer(StrataClient client, Camera camera, DisplayDebugInfo debug) {
         this.client = client;
-        this.camera = client.getCamera();
+        this.camera = camera;
         this.poseStack = new MatrixStack();
         this.modelRenderer = new ModelRenderer();
         this.guiRenderer = new GuiRenderer();
         this.entityRenderDispatcher = new EntityRenderDispatcher();
-        this.debug = client.getDebugInfo();
+        this.debug = debug;
     }
 
     /**
@@ -86,8 +85,7 @@ public class MasterRenderer implements BasicRenderer {
     }
 
 
-    @Override
-    public void render(float partialTicks, float deltaTime) {
+    public void render(Map<Integer, EntityRenderSnapshot> snapshots , float partialTicks, float deltaTime) {
         flushesThisFrame = 0;
         entitiesRendered = 0;
         entitiesCulled = 0;
@@ -103,7 +101,7 @@ public class MasterRenderer implements BasicRenderer {
         }
 
         // 4. Render the world (entities, blocks, etc.)
-        renderWorld(partialTicks, deltaTime);
+        renderWorld(snapshots, partialTicks, deltaTime);
 
         // 5. Render UI and overlays
         postRender(partialTicks, deltaTime);
@@ -130,7 +128,7 @@ public class MasterRenderer implements BasicRenderer {
     /**
      * Main world rendering pass.
      */
-    private void renderWorld(float partialTicks, float deltaTime) {
+    private void renderWorld(Map<Integer, EntityRenderSnapshot> snapshots, float partialTicks, float deltaTime) {
         this.client.getWindow().setRenderPhase("Render World");
 
         clearBuffers();
@@ -139,7 +137,7 @@ public class MasterRenderer implements BasicRenderer {
             renderChunks(partialTicks);
         }
 
-        renderEntities(partialTicks, deltaTime);
+        renderEntities(snapshots, partialTicks, deltaTime);
 
         flushBuffers(); // Final flush
     }
@@ -164,7 +162,7 @@ public class MasterRenderer implements BasicRenderer {
     /**
      * Renders all entities in the world.
      */
-    private void renderEntities(float partialTicks, float deltaTime) {
+    private void renderEntities(Map<Integer, EntityRenderSnapshot> snapshots, float partialTicks, float deltaTime) {
         World world = client.getWorld();
         if (world == null) {
             return;
@@ -176,61 +174,58 @@ public class MasterRenderer implements BasicRenderer {
         float camY = (float) lerp(cameraEntity.prevY, cameraEntity.getPosition().getY(), partialTicks);
         float camZ = (float) lerp(cameraEntity.prevZ, cameraEntity.getPosition().getZ(), partialTicks);
 
-        for (Entity entity : world.getEntities()) {
-            EntityRenderer<Entity> renderer = entityRenderDispatcher.getRenderer(entity);
+        if(snapshots != null) {
+            for (EntityRenderSnapshot snapshot : snapshots.values()) {
+                EntityRenderer<Entity> renderer = entityRenderDispatcher.getRenderer(snapshot.getEntityKey());
 
-            if (renderer == null) {
-                continue;
+                if (renderer == null) {
+                    continue;
+                }
+
+                // Interpolate entity position
+                double x = lerp(snapshot.getPrevPosition().getX(), snapshot.getPosition().getX(), partialTicks);
+                double y = lerp(snapshot.getPrevPosition().getY(), snapshot.getPosition().getY(), partialTicks);
+                double z = lerp(snapshot.getPrevPosition().getZ(), snapshot.getPosition().getZ(), partialTicks);
+
+                // Distance culling
+                float dx = (float) (x - camX);
+                float dy = (float) (y - camY);
+                float dz = (float) (z - camZ);
+                float distSq = dx * dx + dy * dy + dz * dz;
+
+                if (distSq > ENTITY_RENDER_DISTANCE * ENTITY_RENDER_DISTANCE) {
+                    entitiesCulled++;
+                    continue;
+                }
+
+                // Frustum culling - test entity bounding sphere
+                float entityRadius = snapshot.getEntityKey().getWidth(); // Use entity width as approximate radius
+                if (!camera.isSphereVisible((float) x, (float) y, (float) z, entityRadius)) {
+                    entitiesCulled++;
+                    continue;
+                }
+
+                // Entity is visible, prepare to render
+                checkBuffersBeforeRender();
+
+                float yaw = lerpAngle(snapshot.getPrevYaw(), snapshot.getRotation().getY(), partialTicks);
+                float pitch = lerpAngle(snapshot.getPrevPitch(), snapshot.getRotation().getX(), partialTicks);
+
+                MatrixStack entityPoseStack = new MatrixStack();
+                entityPoseStack.push();
+
+                entityPoseStack.translate((float) x, (float) y, (float) z);
+                entityPoseStack.rotate(yaw, 0, 1, 0);   // Rotate around Y first (Left/Right)
+                entityPoseStack.rotate(pitch, 1, 0, 0); // Rotate around X second (Up/Down)
+
+                // Render the entity
+                renderer.render(snapshot, partialTicks, entityPoseStack);
+
+                entityPoseStack.pop();
+                entitiesRendered++;
             }
-
-            // Interpolate entity position
-            double x = lerp(entity.prevX, entity.getPosition().getX(), partialTicks);
-            double y = lerp(entity.prevY, entity.getPosition().getY(), partialTicks);
-            double z = lerp(entity.prevZ, entity.getPosition().getZ(), partialTicks);
-
-            // Distance culling
-            float dx = (float) (x - camX);
-            float dy = (float) (y - camY);
-            float dz = (float) (z - camZ);
-            float distSq = dx * dx + dy * dy + dz * dz;
-
-            if (distSq > ENTITY_RENDER_DISTANCE * ENTITY_RENDER_DISTANCE) {
-                entitiesCulled++;
-                continue;
-            }
-
-            // Frustum culling - test entity bounding sphere
-            float entityRadius = entity.getWidth(); // Use entity width as approximate radius
-            if (!camera.isSphereVisible((float) x, (float) y, (float) z, entityRadius)) {
-                entitiesCulled++;
-                continue;
-            }
-
-            // Additional renderer-specific culling
-            if (!renderer.shouldRender(entity, camX, camY, camZ)) {
-                entitiesCulled++;
-                continue;
-            }
-
-            // Entity is visible, prepare to render
-            checkBuffersBeforeRender();
-
-            float yaw = lerpAngle(entity.prevYaw, entity.getYaw(), partialTicks);
-            float pitch = lerpAngle(entity.prevPitch, entity.getPitch(), partialTicks);
-
-            MatrixStack entityPoseStack = new MatrixStack();
-            entityPoseStack.push();
-
-            entityPoseStack.translate((float) x, (float) y, (float) z);
-            entityPoseStack.rotate(yaw, 0, 1, 0);
-            entityPoseStack.rotate(pitch, 1, 0, 0);
-
-            // Render the entity
-            renderer.render(entity, partialTicks, entityPoseStack);
-
-            entityPoseStack.pop();
-            entitiesRendered++;
         }
+
 
         if (debug.showRenderCullingDebug()) {
             LOGGER.debug("Entity rendering: {} rendered, {} culled",
@@ -278,13 +273,11 @@ public class MasterRenderer implements BasicRenderer {
         layer.clean();
     }
 
-    @Override
     public void preRender(float partialTicks, float deltaTime) {
         this.client.getWindow().setRenderPhase("Pre Render");
         RenderSystem.clear(0.5f, 0.7f, 0.9f, 1.0f);
     }
 
-    @Override
     public void postRender(float partialTicks, float deltaTime) {
         this.client.getWindow().setRenderPhase("Post Render");
     }

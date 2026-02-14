@@ -4,10 +4,12 @@ import engine.strata.client.StrataClient;
 import engine.strata.client.input.InputSystem;
 import engine.strata.client.input.keybind.Keybinds;
 import engine.strata.client.render.snapshot.EntityRenderSnapshot;
+import engine.strata.client.render.snapshot.EntitySnapshotPool;
 import engine.strata.entity.entities.BiaEntity;
 import engine.strata.entity.Entity;
 import engine.strata.entity.entities.PlayerEntity;
 import engine.strata.event.events.KeyEvent;
+import engine.strata.physics.JoltLoader;
 import engine.strata.registry.registries.EntityRegistry;
 import engine.strata.world.World;
 import org.slf4j.Logger;
@@ -23,33 +25,38 @@ public class ClientBackEnd implements Runnable {
     private final PlayerEntity player;
     private boolean running = true;
     private boolean hideCursor = true;
-
+    private Entity testEntity;
     private static final float TICKS_PER_SECOND = 20.0F;
     private static final float TIME_PER_TICK = 1.0F / TICKS_PER_SECOND;
 
     // The "Bridge" between threads
-    private volatile Map<Integer, EntityRenderSnapshot> latestEntitySnapshots = new HashMap<>();
+    private final EntitySnapshotPool snapshotPool = new EntitySnapshotPool();
     private volatile float latestPartialTicks;
 
     public ClientBackEnd() {
         StrataClient.getInstance().getEventBus().subscribe(KeyEvent.class, inputSystem::handleKeyEvent);
         this.world = new World("TestWorld", System.currentTimeMillis());
         this.player = EntityRegistry.PLAYER.create(world);
+        this.player.setPosition(0,120,0);
         world.addEntity(player);
         spawnTestEntities();
+        JoltLoader.load();
 
         // Pre-load chunks around spawn
         LOGGER.info("Pre-loading spawn chunks...");
-        world.preloadChunks(player.getPosition().getX(), player.getPosition().getY(), player.getPosition().getZ(), 5);
+        world.preloadChunks(player.getPosition().getX(), player.getPosition().getY(), player.getPosition().getZ());
     }
 
     private void spawnTestEntities() {
         LOGGER.info("Spawning test entities...");
+        this.testEntity = EntityRegistry.BIA.create(world);
+        testEntity.setPosition(0,  120, -5);
+        world.addEntity(testEntity);
 
         for (int i = 0; i < 10; i++) {
             BiaEntity bia = EntityRegistry.BIA.create(world);
-            bia.setPosition(i * 2,  0, -5);
-            bia.setPitch((float) (i/.4));
+            bia.setPosition(i * 2,  120, -5);
+            bia.setHeadPitch((float) (i/.4));
             world.addEntity(bia);
         }
     }
@@ -91,31 +98,20 @@ public class ClientBackEnd implements Runnable {
     }
 
     private void tick() {
+        this.testEntity.setPosition(0, testEntity.getPosition().getY(), testEntity.getPosition().getZ() + 0.02F);
         world.tick();
         StrataClient.getInstance().getCamera().tick();
     }
 
     private void captureFrameState(float partialTicks) {
-        Map<Integer, EntityRenderSnapshot> frameMap = new HashMap<>();
-
         for (Entity entity : world.getEntities()) {
-            EntityRenderSnapshot snapshot = new EntityRenderSnapshot(entity.getId(), entity.getUuid(), entity.getKey(), partialTicks);
-
-            snapshot.setPosition((float) entity.getPosition().getX(), (float) entity.getPosition().getY(), (float) entity.getPosition().getZ());
-            snapshot.setRotation(entity.getRotation().getX(), entity.getRotation().getY(), entity.getRotation().getZ());
-            snapshot.setScale(entity.getScale().getX(), entity.getScale().getY(), entity.getScale().getZ());
-            snapshot.setPrevPosition(entity.prevX, entity.prevY, entity.prevZ);
-            snapshot.setPrevYaw(entity.prevYaw);
-            snapshot.setPrevPitch(entity.prevPitch);
-
-            frameMap.put(entity.getId(), snapshot);
+            snapshotPool.updateSnapshot(entity, partialTicks);
         }
 
-        this.latestEntitySnapshots = frameMap;
         this.latestPartialTicks = partialTicks;
     }
 
-    public Map<Integer, EntityRenderSnapshot> getLatestEntitySnapshots() { return latestEntitySnapshots; }
+    public Map<Integer, EntityRenderSnapshot> getLatestEntitySnapshots() { return snapshotPool.getAllSnapshots(); }
     public float getLatestPartialTicks() { return latestPartialTicks; }
     public PlayerEntity getPlayer() { return player; }
     public World getWorld() { return world; }

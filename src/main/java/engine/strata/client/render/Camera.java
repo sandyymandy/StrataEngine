@@ -25,6 +25,8 @@ public class Camera {
     private float speed;
     private float normalSpeed = 0.25f;
     private float slowSpeed = 0.05f;
+    private float fastSpeed = 0.5f;
+    private float fastSpeedPlus = 3f;
     private boolean firstMouse = true;
     private double lastMouseX, lastMouseY;
     private float sensitivity = 0.15f;
@@ -55,7 +57,7 @@ public class Camera {
         double y = lerp(partialTick, focusedEntity.prevY, focusedEntity.getPosition().getY()) + focusedEntity.getEyeHeight();
         double z = lerp(partialTick, focusedEntity.prevZ, focusedEntity.getPosition().getZ());
 
-        this.setRotation(focusedEntity.getYaw(), focusedEntity.getPitch());
+        this.setRotation(focusedEntity.getHeadYaw(), focusedEntity.getHeadPitch());
         this.setPos((float)x, (float)y, (float)z);
 
         if (thirdPerson) {
@@ -69,8 +71,8 @@ public class Camera {
         frustum.update(projectionMatrix, viewMatrix);
 
         // Store current as previous for next frame
-        this.prevYaw = focusedEntity.getYaw();
-        this.prevPitch = focusedEntity.getPitch();
+        this.prevYaw = focusedEntity.getHeadYaw();
+        this.prevPitch = focusedEntity.getHeadPitch();
         this.prevPos.set(this.pos);
         handleMouse(focusedEntity);
     }
@@ -96,24 +98,30 @@ public class Camera {
         lastMouseX = x;
         lastMouseY = y;
 
-        entity.setYaw(entity.getYaw() + offsetX * sensitivity);
-        entity.setPitch(entity.getPitch() - offsetY * sensitivity); // Adjusted sign for standard feel
+        entity.setHeadYaw(entity.getHeadYaw() + offsetX * sensitivity);
+        entity.setHeadPitch(entity.getHeadPitch() - offsetY * sensitivity); // Adjusted sign for standard feel
 
-        if (entity.getPitch() > 89.0f) entity.setPitch(89.0f);
-        if (entity.getPitch() < -89.0f) entity.setPitch(-89.0f);
+        if (entity.getHeadPitch() > 89.0f) entity.setHeadPitch(89.0f);
+        if (entity.getHeadPitch() < -89.0f) entity.setHeadPitch(-89.0f);
     }
 
     public void updateMovement(Entity entity) {
         if(entity == null) return;
         // Calculate direction based on YAW
-        float radYaw = (float) Math.toRadians(entity.getYaw());
+        float radYaw = (float) Math.toRadians(entity.getHeadYaw());
         float sin = (float) Math.sin(radYaw);
         float cos = (float) Math.cos(radYaw);
 
         speed = normalSpeed;
 
-        if(Keybinds.SLOW.isActive()) {
+        if(Keybinds.SLOW.isActive() && Keybinds.FAST.isActive()) {
+            speed = fastSpeedPlus;
+        }
+        else if (Keybinds.SLOW.isActive()) {
             speed = slowSpeed;
+        }
+        else if(Keybinds.FAST.isActive()) {
+            speed = fastSpeed;
         }
 
         if (Keybinds.RIGHT.isActive()) {

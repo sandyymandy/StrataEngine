@@ -9,11 +9,11 @@ public class PlayerEntityRenderer extends EntityRenderer<PlayerEntity> {
 
     public PlayerEntityRenderer(EntityRendererFactory.Context ctx) {
         super(ctx);
-        // Models will be loaded on first render to avoid GL context issues
     }
 
     @Override
     public Identifier getModelId() {
-        return Identifier.ofEngine("player");
+        return Identifier.ofEngine("playesr");
     }
+
 }

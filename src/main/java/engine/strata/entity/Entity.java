@@ -4,6 +4,7 @@ import engine.strata.entity.util.EntityKey;
 import engine.strata.util.math.Math;
 import engine.strata.util.math.Random;
 import engine.strata.util.math.Vec3d;
+import engine.strata.util.math.Vec3f;
 import engine.strata.world.SpatialObject;
 import engine.strata.world.World;
 
@@ -14,11 +15,16 @@ public class Entity extends SpatialObject {
     private static final AtomicInteger CURRENT_ID = new AtomicInteger();
     protected final EntityKey<?> key;
     protected final World world;
+    private float headYaw;
+    private float headPitch;
     public double prevX;
     public double prevY;
     public double prevZ;
-    public float prevYaw;
-    public float prevPitch;
+    public float prevRotationX;
+    public float prevRotationY;
+    public float prevRotationZ;
+    public float prevHeadYaw;
+    public float prevHeadPitch;
     private Vec3d velocity = Vec3d.ZERO;
     public float eyeHeight = 1.62f;
     protected final Random random = new Random(System.currentTimeMillis());
@@ -35,16 +41,19 @@ public class Entity extends SpatialObject {
         this.prevX = this.position.getX();
         this.prevY = this.position.getY();
         this.prevZ = this.position.getZ();
-        this.prevYaw = this.rotation.getY();
-        this.prevPitch = this.rotation.getX();
+        this.prevRotationX = this.rotation.getX();
+        this.prevRotationY = this.rotation.getY();
+        this.prevRotationZ = this.rotation.getZ();
+        this.prevHeadYaw = this.headYaw;
+        this.prevHeadPitch = this.headPitch;
     }
 
-    public void setYaw(float yaw) {this.rotation.setY(yaw);}
-    public void setPitch(float pitch) {this.rotation.setX(pitch);}
+    public void setHeadYaw(float yaw) {this.headYaw = yaw;}
+    public void setHeadPitch(float pitch) {this.headPitch = pitch;}
 
 
-    public float getYaw() { return this.rotation.getY(); }
-    public float getPitch() { return this.rotation.getX(); }
+    public float getHeadYaw() { return this.headYaw; }
+    public float getHeadPitch() { return this.headPitch; }
     public float getEyeHeight() { return eyeHeight; }
 
     public EntityKey<?> getKey() {

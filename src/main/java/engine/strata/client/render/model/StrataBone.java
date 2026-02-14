@@ -1,6 +1,5 @@
 package engine.strata.client.render.model;
 
-import engine.strata.client.render.animation.core.BoneSnapshot;
 import org.joml.Matrix4f;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
@@ -10,17 +9,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/**
- * Enhanced bone system inspired by GeckoLib.
- * Supports visibility control, matrix tracking, and advanced animation.
- *
- * <p><b>FIXED ISSUES:</b>
- * <ul>
- *   <li>Removed duplicate setPosition() methods</li>
- *   <li>Renamed animation setters for clarity (setAnimRotation, setAnimPosition, setAnimScale)</li>
- *   <li>Separated position override from animation position</li>
- * </ul>
- */
 public class StrataBone {
     // Core properties (immutable)
     private final String name;
@@ -53,9 +41,6 @@ public class StrataBone {
     private final Matrix4f modelSpaceMatrix = new Matrix4f().identity();
     private final Matrix4f localSpaceMatrix = new Matrix4f().identity();
     private final Matrix4f worldSpaceMatrix = new Matrix4f().identity();
-
-    // Initial snapshot (for resetting animations)
-    private BoneSnapshot initialSnapshot;
 
     public StrataBone(String name, StrataBone parent, Vector3f pivot, Vector3f rotation, List<String> meshIds) {
         this.name = name;

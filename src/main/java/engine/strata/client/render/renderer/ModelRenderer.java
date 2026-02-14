@@ -6,7 +6,6 @@ import engine.helios.RenderLayer;
 import engine.helios.VertexFormat;
 import engine.strata.client.StrataClient;
 import engine.strata.client.render.RenderLayers;
-import engine.strata.client.render.animation.core.AnimationController;
 import engine.strata.client.render.model.StrataBone;
 import engine.strata.client.render.model.StrataMeshData;
 import engine.strata.client.render.model.StrataModel;
@@ -36,16 +35,15 @@ public class ModelRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger("ModelRenderer");
 
     /**
-     * Renders a model with optional animation support.
-     * If animationController is null, renders in bind pose.
+     * Renders a model.
      */
-    public void render(StrataModel model, StrataSkin skin, MatrixStack poseStack, AnimationController animationController) {
+    public void render(StrataModel model, StrataSkin skin, MatrixStack poseStack) {
         for (Map.Entry<String, StrataSkin.TextureData> entry : skin.textures().entrySet()) {
             String textureSlot = entry.getKey();
             StrataSkin.TextureData texData = entry.getValue();
 
             // Get the appropriate render layer
-            RenderLayer layer = RenderLayers.getLayerForSlot(
+            RenderLayer layer = RenderLayers.getEntityLayer(
                     texData.path(),
                     texData.translucent()
             );
@@ -58,15 +56,8 @@ public class ModelRenderer {
                 buffer.begin(VertexFormat.POSITION_TEXTURE_COLOR);
             }
 
-            renderModel(model, skin, textureSlot, poseStack, buffer, animationController);
+            renderModel(model, skin, textureSlot, poseStack, buffer);
         }
-    }
-
-    /**
-     * Legacy method for backward compatibility (no animation).
-     */
-    public void render(StrataModel model, StrataSkin skin, MatrixStack poseStack) {
-        render(model, skin, poseStack, null);
     }
 
     /**
@@ -74,12 +65,12 @@ public class ModelRenderer {
      * This renders ALL meshes (used when you have a single texture).
      */
     public void renderModel(StrataModel model, StrataSkin skin, MatrixStack poseStack,
-                            BufferBuilder builder, AnimationController animationController) {
+                            BufferBuilder builder) {
         if (!builder.isBuilding()) {
             builder.begin(VertexFormat.POSITION_TEXTURE_COLOR);
         }
         renderBone(model, skin, null, model.getRoot(), poseStack, builder,
-                new Matrix4f().identity(), animationController);
+                new Matrix4f().identity());
     }
 
     /**
@@ -89,12 +80,12 @@ public class ModelRenderer {
      * @param textureSlotFilter The texture slot to render (e.g., "bia.png", "steve.png")
      */
     public void renderModel(StrataModel model, StrataSkin skin, String textureSlotFilter,
-                            MatrixStack poseStack, BufferBuilder builder, AnimationController animationController) {
+                            MatrixStack poseStack, BufferBuilder builder) {
         if (!builder.isBuilding()) {
             builder.begin(VertexFormat.POSITION_TEXTURE_COLOR);
         }
         renderBone(model, skin, textureSlotFilter, model.getRoot(), poseStack, builder,
-                new Matrix4f().identity(), animationController);
+                new Matrix4f().identity());
     }
 
     /**
@@ -102,11 +93,10 @@ public class ModelRenderer {
      *
      *
      * @param textureSlotFilter If not null, only render meshes with this texture slot
-     * @param animationController If not null, provides animation transforms
-     */
+\     */
     private void renderBone(StrataModel model, StrataSkin skin, String textureSlotFilter,
                             StrataBone bone, MatrixStack poseStack, BufferBuilder builder,
-                            Matrix4f parentModelMatrix, AnimationController animationController) {
+                            Matrix4f parentModelMatrix) {
 
         if (!bone.shouldRender()) {
             return;
@@ -118,46 +108,11 @@ public class ModelRenderer {
         Vector3f pivot = bone.getPivot();
         Vector3f staticRotation = bone.getRotation();
 
-        // Get animation transforms DIRECTLY from controller (no caching on bone!)
-        Vector3f animRotation = new Vector3f(0, 0, 0);
-        Vector3f animTranslation = new Vector3f(0, 0, 0);
-        Vector3f animScale = new Vector3f(1, 1, 1);
-
-        if (animationController != null) {
-            // Request current animation state for this bone
-            BoneTransform transform = animationController.getBoneTransform(bone.getName());
-            if (transform != null) {
-                animRotation = transform.rotation();
-                animTranslation = transform.translation();
-                animScale = transform.scale();
-            }
-        }
-
-        // Handle position override (if set) - for manual control
-        Vector3f finalTranslation = animTranslation;
-//        if (bone.getPositionOverride() != null) {
-//            finalTranslation = bone.getPositionOverride();
-//        }
-
         // Move to pivot point
         poseStack.translate(pivot.x, pivot.y, pivot.z);
 
-        // Apply animation translation
-        poseStack.translate(finalTranslation.x, finalTranslation.y, finalTranslation.z);
+        poseStack.rotateZYX(staticRotation.z, staticRotation.y, staticRotation.x);
 
-        // Apply rotations (model rotation + animation rotation)
-        float totalRotZ = staticRotation.z + animRotation.z;
-        float totalRotY = staticRotation.y + animRotation.y;
-        float totalRotX = staticRotation.x + animRotation.x;
-
-        if (totalRotZ != 0) poseStack.rotate(totalRotZ, 0, 0, 1);
-        if (totalRotY != 0) poseStack.rotate(totalRotY, 0, 1, 0);
-        if (totalRotX != 0) poseStack.rotate(totalRotX, 1, 0, 0);
-
-        // Apply scale
-        if (animScale.x != 1 || animScale.y != 1 || animScale.z != 1) {
-            poseStack.scale(animScale.x, animScale.y, animScale.z);
-        }
 
         // Move back from pivot
         poseStack.translate(-pivot.x, -pivot.y, -pivot.z);
@@ -190,7 +145,7 @@ public class ModelRenderer {
         // Render child bones (pass animation controller down the hierarchy)
         for (StrataBone child : bone.getChildren()) {
             renderBone(model, skin, textureSlotFilter, child, poseStack, builder,
-                    currentModelMatrix, animationController);
+                    currentModelMatrix);
         }
 
         poseStack.pop();

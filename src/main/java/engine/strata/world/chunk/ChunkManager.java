@@ -14,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Enhanced chunk manager with integrated generation and lighting.
  * Manages all chunks in the world with multithreaded generation support.
+ * NOW SUPPORTS FLAT (2D) CHUNK LOADING FOR SINGLE-LAYER WORLDS.
  */
 public class ChunkManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("ChunkManager");
@@ -28,10 +29,8 @@ public class ChunkManager {
     private final LightingEngine lightingEngine;
 
     // World seed
-    private final long seed;
 
     public ChunkManager(long seed) {
-        this.seed = seed;
         this.generationManager = new ChunkGenerationManager(seed);
         this.lightingEngine = new LightingEngine(this);
 
@@ -188,7 +187,55 @@ public class ChunkManager {
     }
 
     /**
-     * Loads chunks in a radius around a position (for player movement).
+     * Loads chunks in a FLAT (2D) pattern - only one Y layer.
+     * Use this for worlds that only need one vertical chunk layer.
+     */
+    public void loadChunksAroundFlat(int centerChunkX, int fixedChunkY, int centerChunkZ, int radius) {
+        for (int x = centerChunkX - radius; x <= centerChunkX + radius; x++) {
+            for (int z = centerChunkZ - radius; z <= centerChunkZ + radius; z++) {
+                // Only load chunks within radius (circular pattern)
+                int dx = x - centerChunkX;
+                int dz = z - centerChunkZ;
+                double distance = Math.sqrt(dx * dx + dz * dz);
+
+                if (distance <= radius) {
+                    // Load only the fixed Y layer
+                    getChunk(x, fixedChunkY, z);
+                }
+            }
+        }
+    }
+
+    /**
+     * Unloads chunks outside a FLAT (2D) radius - only considers X and Z.
+     */
+    public void unloadChunksOutsideFlat(int centerChunkX, int fixedChunkY, int centerChunkZ, int radius) {
+        chunks.entrySet().removeIf(entry -> {
+            ChunkPos pos = entry.getKey();
+
+            // Only consider chunks at the fixed Y level
+            if (pos.y != fixedChunkY) {
+                if(StrataClient.getInstance().getDebugInfo().showChunkDebug())
+                    LOGGER.debug("Unloading chunk at wrong Y level: {}", pos);
+                return true;
+            }
+
+            int dx = pos.x - centerChunkX;
+            int dz = pos.z - centerChunkZ;
+            double distance = Math.sqrt(dx * dx + dz * dz);
+
+            if (distance > radius + 2) { // Add buffer
+                if(StrataClient.getInstance().getDebugInfo().showChunkDebug())
+                    LOGGER.debug("Unloading distant chunk at {}", pos);
+                return true;
+            }
+            return false;
+        });
+    }
+
+    /**
+     * ORIGINAL 3D chunk loading (for reference).
+     * Loads chunks in a spherical radius around a position.
      */
     public void loadChunksAround(int centerChunkX, int centerChunkY, int centerChunkZ, int radius) {
         for (int x = centerChunkX - radius; x <= centerChunkX + radius; x++) {
@@ -209,7 +256,7 @@ public class ChunkManager {
     }
 
     /**
-     * Unloads chunks outside a radius (for memory management).
+     * ORIGINAL 3D chunk unloading (for reference).
      */
     public void unloadChunksOutside(int centerChunkX, int centerChunkY, int centerChunkZ, int radius) {
         chunks.entrySet().removeIf(entry -> {
@@ -220,7 +267,8 @@ public class ChunkManager {
             double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
             if (distance > radius + 2) { // Add buffer
-                if(StrataClient.getInstance().getDebugInfo().showChunkDebug()) LOGGER.debug("Unloading distant chunk at {}", pos);
+                if(StrataClient.getInstance().getDebugInfo().showChunkDebug())
+                    LOGGER.debug("Unloading distant chunk at {}", pos);
                 return true;
             }
             return false;

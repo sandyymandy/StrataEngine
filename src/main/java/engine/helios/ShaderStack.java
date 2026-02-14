@@ -50,8 +50,12 @@ public class ShaderStack {
     }
 
     public void setUniform(String name, boolean value) {
+        setUniform(name, value ? 1 : 0);
+    }
+
+    public void setUniform(String name, int value) {
         int location = uniformLocations.computeIfAbsent(name, n -> glGetUniformLocation(programId, n));
-        glUniform1i(location, value ? 1 : 0);
+        glUniform1i(location, value);
     }
 
     private int compile(String source, int type) {

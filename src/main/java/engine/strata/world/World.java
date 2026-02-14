@@ -1,12 +1,10 @@
 package engine.strata.world;
 
-import com.github.stephengold.joltjni.*;
-import com.github.stephengold.joltjni.enumerate.EActivation;
-import com.github.stephengold.joltjni.enumerate.EMotionType;
+
 import engine.strata.client.StrataClient;
 import engine.strata.entity.Entity;
 import engine.strata.entity.entities.PlayerEntity;
-import engine.strata.physics.JoltLoader;
+import engine.strata.physics.PhysicsManager;
 import engine.strata.world.block.Block;
 import engine.strata.world.chunk.Chunk;
 import engine.strata.world.chunk.ChunkManager;
@@ -26,8 +24,9 @@ public class World {
     private final ConcurrentHashMap<UUID, Entity> entities = new ConcurrentHashMap<>();
     private volatile List<Entity> entityList = new ArrayList<>();
 
-    // Chunk/Block management
+    // management
     private final ChunkManager chunkManager;
+    private final PhysicsManager physicsManager;
 
     // World properties
     private final long seed;
@@ -37,13 +36,14 @@ public class World {
     private int lastPlayerChunkX = 0;
     private int lastPlayerChunkY = 0;
     private int lastPlayerChunkZ = 0;
-    private static final int CHUNK_LOAD_RADIUS = 8; // Load chunks within 8 chunk radius
-    private static final int CHUNK_UNLOAD_RADIUS = 12; // Unload chunks beyond 12 chunk radius
+    private static final int CHUNK_LOAD_RADIUS = 32;
 
     public World(String worldName, long seed) {
         this.worldName = worldName;
         this.seed = seed;
         this.chunkManager = new ChunkManager(seed);
+        this.physicsManager = new PhysicsManager();
+        this.physicsManager.init();
 
         if(StrataClient.getInstance().getDebugInfo().showWorldDebug()) LOGGER.info("Creating new world '{}' with seed {}", worldName, seed);
     }
@@ -52,10 +52,15 @@ public class World {
         this("World", System.currentTimeMillis());
     }
 
+
     /**
      * Ticks all entities and updates chunks around players.
      */
     public void tick() {
+        if (physicsManager != null) {
+            physicsManager.update(1.0f / 60.0f);
+        }
+
         // Tick all entities
         for (Entity entity : entityList) {
             entity.tick();
@@ -69,22 +74,24 @@ public class World {
 
     /**
      * Updates chunks around a player entity.
+     * NOW ONLY LOADS ONE VERTICAL LAYER (Y=4, which is world Y=64-79)
      */
     private void updateChunksAroundPlayer(Entity player) {
         int playerChunkX = (int) Math.floor(player.getPosition().getX() / Chunk.SIZE);
-        int playerChunkY = (int) Math.floor(player.getPosition().getY() / Chunk.SIZE);
         int playerChunkZ = (int) Math.floor(player.getPosition().getZ() / Chunk.SIZE);
+
+        // SNAP TO Y=4 (world height 64-79)
+        int playerChunkY = 4;
 
         // Only update if player moved to a different chunk
         if (playerChunkX != lastPlayerChunkX ||
-                playerChunkY != lastPlayerChunkY ||
                 playerChunkZ != lastPlayerChunkZ) {
 
-            // Load new chunks
-            chunkManager.loadChunksAround(playerChunkX, playerChunkY, playerChunkZ, CHUNK_LOAD_RADIUS);
+            // Load new chunks - ONLY HORIZONTAL, Y is fixed at 4
+            chunkManager.loadChunksAroundFlat(playerChunkX, playerChunkY, playerChunkZ, CHUNK_LOAD_RADIUS);
 
             // Unload distant chunks
-            chunkManager.unloadChunksOutside(playerChunkX, playerChunkY, playerChunkZ, CHUNK_UNLOAD_RADIUS);
+            chunkManager.unloadChunksOutsideFlat(playerChunkX, playerChunkY, playerChunkZ, CHUNK_LOAD_RADIUS + 1);
 
             lastPlayerChunkX = playerChunkX;
             lastPlayerChunkY = playerChunkY;
@@ -98,17 +105,16 @@ public class World {
 
     /**
      * Pre-loads chunks in a radius around a position.
-     * Useful for initial world loading.
+     * NOW ONLY LOADS ONE VERTICAL LAYER (Y=4)
      */
-    public void preloadChunks(double x, double y, double z, int radius) {
+    public void preloadChunks(double x, double y, double z) {
         int centerChunkX = (int) Math.floor(x / Chunk.SIZE);
-        int centerChunkY = (int) Math.floor(y / Chunk.SIZE);
         int centerChunkZ = (int) Math.floor(z / Chunk.SIZE);
 
-        if(StrataClient.getInstance().getDebugInfo().showWorldDebug()) LOGGER.info("Pre-loading chunks in radius {} around [{}, {}, {}]",
-                radius, centerChunkX, centerChunkY, centerChunkZ);
+        // SNAP TO Y=4 (world height 64-79)
+        int centerChunkY = 4;
 
-        chunkManager.loadChunksAround(centerChunkX, centerChunkY, centerChunkZ, radius);
+        chunkManager.loadChunksAroundFlat(centerChunkX, centerChunkY, centerChunkZ, CHUNK_LOAD_RADIUS);
     }
 
     /**
@@ -211,6 +217,10 @@ public class World {
         return chunkManager;
     }
 
+    public PhysicsManager getPhysicsManager() {
+        return physicsManager;
+    }
+
     // ==================== World Properties ====================
 
     /**
@@ -262,6 +272,11 @@ public class World {
         LOGGER.info("Shutting down world '{}'...", worldName);
         clearEntities();
         chunkManager.shutdown();
+
+        if (physicsManager != null) {
+            physicsManager.shutdown();
+        }
+
         LOGGER.info("World '{}' shut down successfully", worldName);
     }
 

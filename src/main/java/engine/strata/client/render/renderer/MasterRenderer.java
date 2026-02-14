@@ -12,7 +12,11 @@ import engine.strata.debug.DisplayDebugInfo;
 import engine.strata.entity.Entity;
 import engine.strata.util.Identifier;
 import engine.strata.world.World;
+import engine.strata.world.block.Blocks;
+import engine.strata.world.block.DynamicTextureAtlas;
+import engine.strata.world.block.TextureAtlasManager;
 import engine.strata.world.chunk.render.ChunkRenderer;
+import engine.strata.world.chunk.render.ChunkRenderingDebugger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,6 +53,8 @@ public class MasterRenderer {
 
     // Chunk rendering
     private ChunkRenderer chunkRenderer;
+    private boolean chunkRendererInitialized = false;
+    private boolean ranDiagnostics = false;
 
     // Render layer management
     private final Map<RenderLayer, BufferBuilder> buffers = new HashMap<>();
@@ -73,6 +79,8 @@ public class MasterRenderer {
         this.guiRenderer = new GuiRenderer();
         this.entityRenderDispatcher = new EntityRenderDispatcher();
         this.debug = debug;
+
+        LOGGER.info("MasterRenderer created (ChunkRenderer will initialize when world is ready)");
     }
 
     /**
@@ -80,8 +88,25 @@ public class MasterRenderer {
      * Call this after the world is set up.
      */
     public void initChunkRenderer(World world) {
-        this.chunkRenderer = new ChunkRenderer(world.getChunkManager());
-        LOGGER.info("Chunk renderer initialized");
+        if (chunkRendererInitialized) {
+            return;
+        }
+
+        Identifier atlasId = Identifier.ofEngine("blocks/atlas");
+
+        // 1. Build the dynamic atlas (this generates the GL texture ID)
+        DynamicTextureAtlas atlas = TextureAtlasManager.getInstance().initializeAtlas(Blocks.getAllBlocks(), 32);
+
+        // 2. Wrap the GL ID in a Texture object and register it
+        Texture atlasTexture = new Texture(atlas.getTextureId());
+        TextureManager.register(atlasId, atlasTexture);
+
+        this.chunkRenderer = new ChunkRenderer(
+                world.getChunkManager(),
+                atlasId
+        );
+        this.chunkRendererInitialized = true;
+        LOGGER.info("ChunkRenderer initialized");
     }
 
 
@@ -89,6 +114,24 @@ public class MasterRenderer {
         flushesThisFrame = 0;
         entitiesRendered = 0;
         entitiesCulled = 0;
+
+        // Initialize chunk renderer on first render if world is available
+        if (!chunkRendererInitialized && client.getWorld() != null) {
+            initChunkRenderer(client.getWorld());
+
+            // Run diagnostics once after a few frames to let chunks generate
+            if (!ranDiagnostics) {
+                ranDiagnostics = true;
+                LOGGER.info("Scheduling chunk diagnostics for next frame...");
+            }
+        }
+
+        // Run diagnostics after chunks have had time to generate
+        if (ranDiagnostics && !debug.showChunkDebug() && client.getWorld() != null) {
+            // Run once, then disable
+            ranDiagnostics = false;
+            ChunkRenderingDebugger.diagnose(client.getWorld());
+        }
 
         this.camera.update(client.getPlayer(), client.getWindow(), partialTicks, isInThirdPerson);
 
@@ -135,6 +178,8 @@ public class MasterRenderer {
 
         if (chunkRenderer != null) {
             renderChunks(partialTicks);
+        } else if (client.getWorld() != null) {
+            LOGGER.warn("ChunkRenderer is null but world exists! Rendering will not work.");
         }
 
         renderEntities(snapshots, partialTicks, deltaTime);
@@ -154,8 +199,8 @@ public class MasterRenderer {
         chunkRenderer.render(camera, partialTicks);
 
         if (debug.showRenderCullingDebug()) {
-            ChunkRenderer.RenderStats stats = chunkRenderer.getStats();
-            LOGGER.debug("Chunk rendering: {}", stats);
+//            ChunkRenderer.RenderStats stats = chunkRenderer.getStats();
+//            LOGGER.debug("Chunk rendering: {}", stats);
         }
     }
 
@@ -208,15 +253,8 @@ public class MasterRenderer {
                 // Entity is visible, prepare to render
                 checkBuffersBeforeRender();
 
-                float yaw = lerpAngle(snapshot.getPrevYaw(), snapshot.getRotation().getY(), partialTicks);
-                float pitch = lerpAngle(snapshot.getPrevPitch(), snapshot.getRotation().getX(), partialTicks);
-
                 MatrixStack entityPoseStack = new MatrixStack();
                 entityPoseStack.push();
-
-                entityPoseStack.translate((float) x, (float) y, (float) z);
-                entityPoseStack.rotate(yaw, 0, 1, 0);   // Rotate around Y first (Left/Right)
-                entityPoseStack.rotate(pitch, 1, 0, 0); // Rotate around X second (Up/Down)
 
                 // Render the entity
                 renderer.render(snapshot, partialTicks, entityPoseStack);
@@ -360,7 +398,7 @@ public class MasterRenderer {
         ModelManager.clearCache();
         RenderLayers.clearCache();
         if (chunkRenderer != null) {
-            chunkRenderer.clearCache();
+//            chunkRenderer.clearCache();
         }
         LOGGER.info("Reloaded renderer resources");
     }

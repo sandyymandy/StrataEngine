@@ -2,6 +2,7 @@ package engine.strata.client.render;
 
 import engine.helios.RenderLayer;
 import engine.helios.ShaderManager;
+import engine.helios.ShaderStack;
 import engine.strata.util.Identifier;
 
 import java.util.HashMap;
@@ -13,58 +14,56 @@ import java.util.Map;
  */
 public class RenderLayers {
     // Cache layers to avoid recreating them every frame
-    private static final Map<Identifier, RenderLayer> ENTITY_LAYERS = new HashMap<>();
-    private static final Map<Identifier, RenderLayer> TRANSLUCENT_LAYERS = new HashMap<>();
+    private static final Map<String, RenderLayer> LAYERS = new HashMap<>();
+
+
 
     /**
-     * Gets or creates a standard entity render layer for a specific texture.
-     * Cached for performance.
+     * Gets or creates an entity render layer.
      */
-    public static RenderLayer getEntityTexture(Identifier texture) {
-        return ENTITY_LAYERS.computeIfAbsent(texture, RenderLayers::createEntityLayer);
+    public static RenderLayer getEntityLayer(Identifier texture, boolean translucent) {
+        String key = "entity_" + texture.toString() + "_" + translucent;
+        return LAYERS.computeIfAbsent(key, k -> {
+            ShaderStack shader = ShaderManager.use(Identifier.ofEngine("generic_3d"));
+            ShaderStack shaderCutout = ShaderManager.use(Identifier.ofEngine("entity_cutout"));
+            return new RenderLayer(
+                    texture,
+                    translucent ? shaderCutout : shader,
+                    translucent,
+                    true,   // Enable depth testing
+                    false   // Entities typically don't use culling
+            );
+        });
     }
 
     /**
-     * Gets or creates a translucent entity render layer.
-     * Used for entities with transparency (ghosts, particles, etc.)
+     * Gets or creates the chunk render layer.
+     * Uses chunk shader with texture atlas, depth testing, and culling.
      */
-    public static RenderLayer getEntityTranslucent(Identifier texture) {
-        return TRANSLUCENT_LAYERS.computeIfAbsent(texture, RenderLayers::createTranslucentLayer);
+    public static RenderLayer getChunkLayer(Identifier textureAtlasId) {
+        String key = "chunk_" + textureAtlasId.toString();
+        return LAYERS.computeIfAbsent(key, k -> new RenderLayer(
+                textureAtlasId,
+                ShaderManager.use(Identifier.ofEngine("chunk")),
+                false,  // Not translucent
+                true,   // Enable depth testing
+                true    // Enable back-face culling
+        ));
     }
 
     /**
-     * Creates a standard entity render layer.
+     * Gets or creates the chunk translucent render layer.
+     * For water, glass, and other transparent blocks.
      */
-    private static RenderLayer createEntityLayer(Identifier texture) {
-        return new RenderLayer(
-                texture,
-                ShaderManager.use(Identifier.ofEngine("generic_3d")),
-                false, // No transparency
-                true,  // Enable depth testing
-                true
-
-        );
-    }
-
-    /**
-     * Creates a translucent entity render layer.
-     */
-    private static RenderLayer createTranslucentLayer(Identifier texture) {
-        return new RenderLayer(
-                texture,
-                ShaderManager.use(Identifier.ofEngine("entity_cutout")),
-                true,  // Enable transparency
-                true,  // Enable depth testing
-                false
-        );
-    }
-
-    /**
-     * Gets a render layer based on texture slot metadata.
-     * Useful when the skin file specifies render properties.
-     */
-    public static RenderLayer getLayerForSlot(Identifier texture, boolean translucent) {
-        return translucent ? getEntityTranslucent(texture) : getEntityTexture(texture);
+    public static RenderLayer getChunkTranslucentLayer(Identifier textureAtlasId) {
+        String key = "chunk_translucent_" + textureAtlasId.toString();
+        return LAYERS.computeIfAbsent(key, k -> new RenderLayer(
+                textureAtlasId,
+                ShaderManager.use(Identifier.ofEngine("chunk")),
+                true,   // Translucent - enables blending
+                true,   // Enable depth testing
+                false   // Disable culling for see-through blocks
+        ));
     }
 
     /**
@@ -72,17 +71,6 @@ public class RenderLayers {
      * Call this when reloading resources or changing render settings.
      */
     public static void clearCache() {
-        ENTITY_LAYERS.clear();
-        TRANSLUCENT_LAYERS.clear();
-    }
-
-    /**
-     * Pre-warms the cache with commonly used textures.
-     * Call during initialization to avoid hitches during gameplay.
-     */
-    public static void prewarm(Identifier... textures) {
-        for (Identifier texture : textures) {
-            getEntityTexture(texture);
-        }
+        LAYERS.clear();
     }
 }

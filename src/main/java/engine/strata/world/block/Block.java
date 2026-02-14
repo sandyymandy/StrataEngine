@@ -9,13 +9,20 @@ import engine.strata.util.Identifier;
 public class Block {
     private final Identifier id;
     private final BlockProperties properties;
+    private final BlockTexture texture;
 
     // Internal numeric ID for chunk storage (assigned by registry)
     private short numericId = -1;
 
-    public Block(Identifier id, BlockProperties properties) {
+    public Block(Identifier id, BlockProperties properties, BlockTexture texture) {
         this.id = id;
         this.properties = properties;
+        this.texture = texture;
+    }
+
+    // Convenience constructor for blocks without texture (like air)
+    public Block(Identifier id, BlockProperties properties) {
+        this(id, properties, new BlockTexture(0));
     }
 
     public Identifier getId() {
@@ -66,6 +73,10 @@ public class Block {
 
     public boolean isAir() {
         return this == Blocks.AIR;
+    }
+
+    public BlockTexture getTexture() {
+        return texture;
     }
 
     @Override

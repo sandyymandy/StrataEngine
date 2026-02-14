@@ -16,7 +16,10 @@ import static org.lwjgl.stb.STBImage.*;
 public class Texture {
     private final int id;
 
-    // Package-private: only TextureManager should create these
+    public Texture(int id) {
+        this.id = id;
+    }
+
     Texture(Identifier identifier) {
         this.id = glGenTextures();
         glBindTexture(GL_TEXTURE_2D, id);

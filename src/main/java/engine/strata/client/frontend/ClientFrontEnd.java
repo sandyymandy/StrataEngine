@@ -13,6 +13,7 @@ import engine.strata.client.render.snapshot.EntityRenderSnapshot;
 import engine.strata.debug.DisplayDebugInfo;
 import engine.strata.registry.registries.EntityRegistry;
 import engine.strata.util.Identifier;
+import engine.strata.world.block.DynamicTextureAtlas;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,7 +37,6 @@ public class ClientFrontEnd {
 
     public void render(Map<Integer, EntityRenderSnapshot> states, float partialTicks, float deltaTime) {
         this.masterRenderer.render(states, partialTicks, deltaTime);
-
     }
 
     private void init() {
@@ -74,4 +74,5 @@ public class ClientFrontEnd {
     public MasterRenderer getMasterRenderer() {
         return masterRenderer;
     }
+
 }

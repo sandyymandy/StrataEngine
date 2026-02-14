@@ -11,32 +11,35 @@ import java.util.UUID;
  * Includes standard transformation data and the custom DataTicket map.
  */
 public class EntityRenderSnapshot extends RenderSnapshot {
-    private final int entityId;
-    private final UUID entityUuid;
-    private final EntityKey<?> entityKey;
-    private final float partialTicks;
+    private int entityId;
+    private UUID entityUuid;
+    private EntityKey<?> entityKey;
+    private float partialTicks;
 
     private final Vec3d position = new Vec3d();
     private final Vec3d prevPosition = new Vec3d();
     private final Vec3f rotation = new Vec3f();
+    private final Vec3f prevRotation = new Vec3f();
     private final Vec3f scale = new Vec3f(1, 1, 1);
-    private float prevYaw;
-    private float prevPitch;
-
-    public EntityRenderSnapshot(int entityId, UUID entityUuid, EntityKey<?> entityKey, float partialTicks) {
-        this.entityId = entityId;
-        this.entityUuid = entityUuid;
-        this.entityKey = entityKey;
-        this.partialTicks = partialTicks;
-    }
+    private float headYaw;
+    private float headPitch;
+    private float prevHeadYaw;
+    private float prevHeadPitch;
 
     // Setters used by the Backend during the "Extraction" phase
+    public void setEntityId(int entityId) { this.entityId = entityId; }
+    public void setKey(EntityKey<?> key) { this.entityKey = key; }
+    public void setPartialTicks(float partialTicks) { this.partialTicks = partialTicks; }
+    public void setUuid(UUID uuid) { this.entityUuid = uuid; }
     public void setPosition(double x, double y, double z) { this.position.set(x, y, z); }
     public void setRotation(float x, float y, float z) { this.rotation.set(x, y, z); }
     public void setScale(float x, float y, float z) { this.scale.set(x, y, z); }
     public void setPrevPosition(double x, double y, double z) { this.prevPosition.set(x, y, z); }
-    public void setPrevPitch(float prevPitch) { this.prevPitch = prevPitch; }
-    public void setPrevYaw(float prevYaw) { this.prevYaw = prevYaw; }
+    public void setPrevRotation(float x, float y, float z) { this.prevRotation.set(x, y, z); }
+    public void setPrevHeadPitch(float prevPitch) { this.prevHeadPitch = prevPitch; }
+    public void setPrevHeadYaw(float prevYaw) { this.prevHeadYaw = prevYaw; }
+    public void setHeadPitch(float pitch) { this.headPitch = pitch; }
+    public void setHeadYaw(float yaw) { this.headYaw = yaw; }
 
     // Getters used by the Frontend during the "Render" phase
     public int getEntityId() { return entityId; }
@@ -44,8 +47,11 @@ public class EntityRenderSnapshot extends RenderSnapshot {
     public EntityKey<?> getEntityKey() { return entityKey; }
     public float getPartialTicks() { return partialTicks; }
     public Vec3d getPrevPosition() { return prevPosition; }
-    public float getPrevPitch() { return prevPitch; }
-    public float getPrevYaw() { return prevYaw; }
+    public Vec3f getPrevRotation() { return prevRotation; }
+    public float getPrevHeadPitch() { return prevHeadPitch; }
+    public float getHeadYaw() { return headYaw; }
+    public float getHeadPitch() { return headPitch; }
+    public float getPrevHeadYaw() { return prevHeadYaw; }
     public Vec3d getPosition() { return position; }
     public Vec3f getRotation() { return rotation; }
     public Vec3f getScale() { return scale; }

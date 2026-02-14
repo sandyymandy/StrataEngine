@@ -13,6 +13,11 @@ public class Math {
         return start + delta * alpha;
     }
 
+    public static float fLerp(double start, double end, float alpha) {
+        return (float) (start + (end - start) * alpha);
+    }
+
+
     public static UUID randomUuid(Random random) {
         long l = random.nextLong() & -61441L | 16384L;
         long m = random.nextLong() & 4611686018427387903L | Long.MIN_VALUE;

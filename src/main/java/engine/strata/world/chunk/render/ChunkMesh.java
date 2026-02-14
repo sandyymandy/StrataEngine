@@ -1,10 +1,5 @@
 package engine.strata.world.chunk.render;
 
-import engine.helios.BufferBuilder;
-import engine.helios.RenderSystem;
-import engine.helios.Tessellator;
-import engine.helios.VertexFormat;
-import engine.strata.world.chunk.Chunk;
 import org.lwjgl.opengl.GL30;
 
 import java.nio.ByteBuffer;

@@ -42,7 +42,7 @@ public abstract class SpatialObject {
     //               TRANSFORMS
     // ==========================================
 
-    public void setPosition(float x, float y, float z) {
+    public void setPosition(double x, double y, double z) {
         this.position.set(x, y, z);
         this.isDirty = true;
     }

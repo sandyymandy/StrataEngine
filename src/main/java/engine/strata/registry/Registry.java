@@ -1,7 +1,10 @@
 package engine.strata.registry;
 
 import engine.strata.util.Identifier;
+
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class Registry<T> {
@@ -17,5 +20,9 @@ public class Registry<T> {
 
     public T get(Identifier id) {
         return entries.get(id);
+    }
+
+    public Collection<T> values() {
+        return entries.values();
     }
 }

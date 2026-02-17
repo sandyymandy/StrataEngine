@@ -22,9 +22,4 @@ void main() {
 
     // NORMAL: Texture * vertex color
     out_Color = texColor * v_Color;
-
-    // DEBUG: If texture is black, show magenta to indicate texture loading issue
-    // if (texColor.rgb == vec3(0.0, 0.0, 0.0) && ) {
-    //     out_Color = vec4(1.0, 0.0, 1.0, 1.0); // Magenta = black texture
-    // }
 }

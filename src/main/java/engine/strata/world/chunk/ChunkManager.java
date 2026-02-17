@@ -1,333 +1,257 @@
 package engine.strata.world.chunk;
 
 import engine.strata.client.StrataClient;
-import engine.strata.world.block.Block;
-import engine.strata.world.block.Blocks;
-import engine.strata.world.lighting.LightingEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collection;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Enhanced chunk manager with integrated generation and lighting.
- * Manages all chunks in the world with multithreaded generation support.
- * NOW SUPPORTS FLAT (2D) CHUNK LOADING FOR SINGLE-LAYER WORLDS.
- */
+
 public class ChunkManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("ChunkManager");
 
-    // All loaded chunks, indexed by ChunkPos
-    private final Map<ChunkPos, Chunk> chunks = new ConcurrentHashMap<>();
+    private int renderDistance = 16; // ← was 8
 
-    // Chunk generation system
-    private final ChunkGenerationManager generationManager;
+    private final ConcurrentHashMap<Long, Region> regions    = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Chunk>  chunkCache = new ConcurrentHashMap<>();
 
-    // Lighting system
-    private final LightingEngine lightingEngine;
+    private final AtomicInteger totalChunks  = new AtomicInteger(0);
+    private final AtomicInteger totalRegions = new AtomicInteger(0);
 
-    // World seed
-
-    public ChunkManager(long seed) {
-        this.generationManager = new ChunkGenerationManager(seed);
-        this.lightingEngine = new LightingEngine(this);
-
-        LOGGER.info("Enhanced chunk manager initialized with seed {}", seed);
+    public ChunkManager() {
+        LOGGER.info("ChunkManager initialized");
     }
 
-    /**
-     * Gets a chunk at the specified chunk coordinates.
-     * Creates and generates a new chunk if it doesn't exist.
-     */
-    public Chunk getChunk(int chunkX, int chunkY, int chunkZ) {
-        ChunkPos pos = new ChunkPos(chunkX, chunkY, chunkZ);
-        return chunks.computeIfAbsent(pos, p -> {
-            Chunk chunk = new Chunk(chunkX, chunkY, chunkZ);
-            if(StrataClient.getInstance().getDebugInfo().showChunkDebug()) LOGGER.debug("Created new chunk at {}", pos);
+    // ── Chunk access ─────────────────────────────────────────────────────────
 
-            // Queue for generation
-            requestChunkGeneration(chunk);
+    public Chunk getChunk(int chunkX, int chunkZ) {
+        return chunkCache.get(packChunkKey(chunkX, chunkZ));
+    }
 
+    public Chunk getOrCreateChunk(int chunkX, int chunkZ) {
+        long key = packChunkKey(chunkX, chunkZ);
+        return chunkCache.computeIfAbsent(key, k -> {
+            Chunk chunk = new Chunk(chunkX, chunkZ);
+            addChunkToRegion(chunk);
+            totalChunks.incrementAndGet();
             return chunk;
         });
     }
 
-    /**
-     * Gets a chunk if it's loaded, null otherwise.
-     */
-    public Chunk getChunkIfLoaded(int chunkX, int chunkY, int chunkZ) {
-        return chunks.get(new ChunkPos(chunkX, chunkY, chunkZ));
-    }
+    private synchronized void addChunkToRegion(Chunk chunk) {
+        int regionX = Math.floorDiv(chunk.getChunkX(), Region.SIZE);
+        int regionZ = Math.floorDiv(chunk.getChunkZ(), Region.SIZE);
+        int regionY = 0;
 
-    /**
-     * Gets the chunk containing a world position.
-     */
-    public Chunk getChunkAtWorldPos(int worldX, int worldY, int worldZ) {
-        int chunkX = Math.floorDiv(worldX, Chunk.SIZE);
-        int chunkY = Math.floorDiv(worldY, Chunk.SIZE);
-        int chunkZ = Math.floorDiv(worldZ, Chunk.SIZE);
-        return getChunk(chunkX, chunkY, chunkZ);
-    }
-
-    /**
-     * Requests a chunk to be generated asynchronously.
-     */
-    private void requestChunkGeneration(Chunk chunk) {
-        generationManager.generateChunkAsync(chunk, generatedChunk -> {
-            // After generation, calculate lighting
-            lightingEngine.calculateInitialLighting(generatedChunk);
-
-            // Mark neighboring chunks as dirty if they exist
-            markNeighborsForUpdate(generatedChunk);
-
-            if(StrataClient.getInstance().getDebugInfo().showChunkDebug()) LOGGER.debug("Chunk {} fully generated and lit", generatedChunk);
+        long regionKey = packRegionKey(regionX, regionY, regionZ);
+        Region region = regions.computeIfAbsent(regionKey, k -> {
+            Region r = new Region(regionX, regionY, regionZ);
+            totalRegions.incrementAndGet(); // FIX: was totalRegions++, unsafe
+            if (StrataClient.getInstance().getDebugInfo().showWorldDebug()) {
+                LOGGER.debug("Created new region: {}", r);
+            }
+            return r;
         });
+
+        region.addChunk(chunk);
     }
 
-    /**
-     * Marks neighboring chunks for update after a chunk is generated.
-     */
-    private void markNeighborsForUpdate(Chunk chunk) {
-        int cx = chunk.getChunkX();
-        int cy = chunk.getChunkY();
-        int cz = chunk.getChunkZ();
+    // ── Chunk removal ─────────────────────────────────────────────────────────
 
-        // Mark all 6 neighboring chunks as dirty
-        markChunkDirtyIfLoaded(cx - 1, cy, cz);
-        markChunkDirtyIfLoaded(cx + 1, cy, cz);
-        markChunkDirtyIfLoaded(cx, cy - 1, cz);
-        markChunkDirtyIfLoaded(cx, cy + 1, cz);
-        markChunkDirtyIfLoaded(cx, cy, cz - 1);
-        markChunkDirtyIfLoaded(cx, cy, cz + 1);
-    }
+    public synchronized void removeChunk(int chunkX, int chunkZ) {
+        long  key   = packChunkKey(chunkX, chunkZ);
+        Chunk chunk = chunkCache.remove(key);
+        if (chunk == null) return;
 
-    /**
-     * Gets a block at world coordinates.
-     */
-    public Block getBlock(int worldX, int worldY, int worldZ) {
-        // Convert to chunk coordinates
-        int chunkX = Math.floorDiv(worldX, Chunk.SIZE);
-        int chunkY = Math.floorDiv(worldY, Chunk.SIZE);
-        int chunkZ = Math.floorDiv(worldZ, Chunk.SIZE);
+        // FIX: sever neighbor back-references FIRST so neighboring chunks
+        //      don't hold a dangling pointer to this chunk after clear().
+        breakNeighborReferences(chunk);
 
-        Chunk chunk = getChunkIfLoaded(chunkX, chunkY, chunkZ);
-        if (chunk == null) {
-            return Blocks.AIR;
+        int regionX   = Math.floorDiv(chunkX, Region.SIZE);
+        int regionZ   = Math.floorDiv(chunkZ, Region.SIZE);
+        long regionKey = packRegionKey(regionX, 0, regionZ);
+        Region region  = regions.get(regionKey);
+
+        if (region != null) {
+            region.removeChunk(chunkX, chunkZ);
+            if (region.isEmpty()) {
+                regions.remove(regionKey);
+                totalRegions.decrementAndGet(); // FIX: was totalRegions--
+            }
         }
 
-        // Convert to local coordinates
-        int localX = Math.floorMod(worldX, Chunk.SIZE);
-        int localY = Math.floorMod(worldY, Chunk.SIZE);
-        int localZ = Math.floorMod(worldZ, Chunk.SIZE);
-
-        return chunk.getBlock(localX, localY, localZ);
+        chunk.clear();
+        totalChunks.decrementAndGet(); // FIX: was totalChunks--
     }
 
     /**
-     * Sets a block at world coordinates and updates lighting.
+     * Removes this chunk from all four neighbours' reference slots so
+     * the freed Chunk object can be garbage-collected.
      */
-    public void setBlock(int worldX, int worldY, int worldZ, Block block) {
-        Chunk chunk = getChunkAtWorldPos(worldX, worldY, worldZ);
+    private void breakNeighborReferences(Chunk chunk) {
+        int x = chunk.getChunkX();
+        int z = chunk.getChunkZ();
 
-        int localX = Math.floorMod(worldX, Chunk.SIZE);
-        int localY = Math.floorMod(worldY, Chunk.SIZE);
-        int localZ = Math.floorMod(worldZ, Chunk.SIZE);
+        Chunk north = getChunk(x, z - 1);
+        if (north != null) north.setNeighbor(Chunk.ChunkDirection.SOUTH, null);
 
-        chunk.setBlock(localX, localY, localZ, block);
+        Chunk south = getChunk(x, z + 1);
+        if (south != null) south.setNeighbor(Chunk.ChunkDirection.NORTH, null);
 
-        // Update lighting after block change
-        lightingEngine.updateLightingAt(worldX, worldY, worldZ);
+        Chunk east = getChunk(x + 1, z);
+        if (east != null) east.setNeighbor(Chunk.ChunkDirection.WEST, null);
 
-        // Mark neighboring chunks as dirty if we're on a boundary
-        if (localX == 0) markChunkDirtyIfLoaded(chunk.getChunkX() - 1, chunk.getChunkY(), chunk.getChunkZ());
-        if (localX == Chunk.SIZE - 1) markChunkDirtyIfLoaded(chunk.getChunkX() + 1, chunk.getChunkY(), chunk.getChunkZ());
-        if (localY == 0) markChunkDirtyIfLoaded(chunk.getChunkX(), chunk.getChunkY() - 1, chunk.getChunkZ());
-        if (localY == Chunk.SIZE - 1) markChunkDirtyIfLoaded(chunk.getChunkX(), chunk.getChunkY() + 1, chunk.getChunkZ());
-        if (localZ == 0) markChunkDirtyIfLoaded(chunk.getChunkX(), chunk.getChunkY(), chunk.getChunkZ() - 1);
-        if (localZ == Chunk.SIZE - 1) markChunkDirtyIfLoaded(chunk.getChunkX(), chunk.getChunkY(), chunk.getChunkZ() + 1);
+        Chunk west = getChunk(x - 1, z);
+        if (west != null) west.setNeighbor(Chunk.ChunkDirection.EAST, null);
     }
 
-    /**
-     * Gets the light level at world coordinates.
-     */
-    public int getLightLevel(int worldX, int worldY, int worldZ) {
-        Chunk chunk = getChunkAtWorldPos(worldX, worldY, worldZ);
-        if (chunk == null) {
-            return 15; // Full light for unloaded chunks
-        }
+    // ── Block access ──────────────────────────────────────────────────────────
 
-        int localX = Math.floorMod(worldX, Chunk.SIZE);
-        int localY = Math.floorMod(worldY, Chunk.SIZE);
-        int localZ = Math.floorMod(worldZ, Chunk.SIZE);
-
-        return chunk.getLight(localX, localY, localZ);
+    public short getBlock(int worldX, int worldY, int worldZ) {
+        int   chunkX = Math.floorDiv(worldX, SubChunk.SIZE);
+        int   chunkZ = Math.floorDiv(worldZ, SubChunk.SIZE);
+        Chunk chunk  = getChunk(chunkX, chunkZ);
+        return chunk == null ? 0 : chunk.getBlockWorld(worldX, worldY, worldZ);
     }
 
-    /**
-     * Marks a chunk as dirty if it's loaded.
-     */
-    private void markChunkDirtyIfLoaded(int chunkX, int chunkY, int chunkZ) {
-        Chunk chunk = getChunkIfLoaded(chunkX, chunkY, chunkZ);
-        if (chunk != null) {
-            chunk.markDirty();
-        }
+    public void setBlock(int worldX, int worldY, int worldZ, short blockId) {
+        int   chunkX = Math.floorDiv(worldX, SubChunk.SIZE);
+        int   chunkZ = Math.floorDiv(worldZ, SubChunk.SIZE);
+        Chunk chunk  = getOrCreateChunk(chunkX, chunkZ);
+        chunk.setBlockWorld(worldX, worldY, worldZ, blockId);
     }
 
-    /**
-     * Unloads a chunk and cancels any pending generation.
-     */
-    public void unloadChunk(int chunkX, int chunkY, int chunkZ) {
-        ChunkPos pos = new ChunkPos(chunkX, chunkY, chunkZ);
-        Chunk removed = chunks.remove(pos);
-        if (removed != null) {
-            if(StrataClient.getInstance().getDebugInfo().showChunkDebug()) LOGGER.debug("Unloaded chunk at {}", pos);
-        }
-    }
+    // ── Load / unload helpers ─────────────────────────────────────────────────
 
-    /**
-     * Loads chunks in a FLAT (2D) pattern - only one Y layer.
-     * Use this for worlds that only need one vertical chunk layer.
-     */
-    public void loadChunksAroundFlat(int centerChunkX, int fixedChunkY, int centerChunkZ, int radius) {
-        for (int x = centerChunkX - radius; x <= centerChunkX + radius; x++) {
-            for (int z = centerChunkZ - radius; z <= centerChunkZ + radius; z++) {
-                // Only load chunks within radius (circular pattern)
-                int dx = x - centerChunkX;
-                int dz = z - centerChunkZ;
-                double distance = Math.sqrt(dx * dx + dz * dz);
+    public List<ChunkPos> getChunksToLoad(double centerX, double centerZ) {
+        List<ChunkPos> chunks = new ArrayList<>();
+        int cx = (int) Math.floor(centerX / SubChunk.SIZE);
+        int cz = (int) Math.floor(centerZ / SubChunk.SIZE);
 
-                if (distance <= radius) {
-                    // Load only the fixed Y layer
-                    getChunk(x, fixedChunkY, z);
+        for (int dx = -renderDistance; dx <= renderDistance; dx++) {
+            for (int dz = -renderDistance; dz <= renderDistance; dz++) {
+                if (dx * dx + dz * dz <= renderDistance * renderDistance) {
+                    chunks.add(new ChunkPos(cx + dx, cz + dz));
                 }
             }
         }
+        return chunks;
     }
 
-    /**
-     * Unloads chunks outside a FLAT (2D) radius - only considers X and Z.
-     */
-    public void unloadChunksOutsideFlat(int centerChunkX, int fixedChunkY, int centerChunkZ, int radius) {
-        chunks.entrySet().removeIf(entry -> {
-            ChunkPos pos = entry.getKey();
+    public List<ChunkPos> getChunksToUnload(double centerX, double centerZ) {
+        List<ChunkPos> toUnload = new ArrayList<>();
+        int cx = (int) Math.floor(centerX / SubChunk.SIZE);
+        int cz = (int) Math.floor(centerZ / SubChunk.SIZE);
+        // FIX: unload buffer raised from +2 → +4 to match the larger render distance
+        int unloadDist = renderDistance + 4;
 
-            // Only consider chunks at the fixed Y level
-            if (pos.y != fixedChunkY) {
-                if(StrataClient.getInstance().getDebugInfo().showChunkDebug())
-                    LOGGER.debug("Unloading chunk at wrong Y level: {}", pos);
-                return true;
+        for (Chunk chunk : chunkCache.values()) {
+            int dx = chunk.getChunkX() - cx;
+            int dz = chunk.getChunkZ() - cz;
+            if (dx * dx + dz * dz > unloadDist * unloadDist) {
+                toUnload.add(new ChunkPos(chunk.getChunkX(), chunk.getChunkZ()));
             }
-
-            int dx = pos.x - centerChunkX;
-            int dz = pos.z - centerChunkZ;
-            double distance = Math.sqrt(dx * dx + dz * dz);
-
-            if (distance > radius + 2) { // Add buffer
-                if(StrataClient.getInstance().getDebugInfo().showChunkDebug())
-                    LOGGER.debug("Unloading distant chunk at {}", pos);
-                return true;
-            }
-            return false;
-        });
+        }
+        return toUnload;
     }
 
-    /**
-     * ORIGINAL 3D chunk loading (for reference).
-     * Loads chunks in a spherical radius around a position.
-     */
-    public void loadChunksAround(int centerChunkX, int centerChunkY, int centerChunkZ, int radius) {
-        for (int x = centerChunkX - radius; x <= centerChunkX + radius; x++) {
-            for (int y = centerChunkY - radius; y <= centerChunkY + radius; y++) {
-                for (int z = centerChunkZ - radius; z <= centerChunkZ + radius; z++) {
-                    // Only load chunks within render distance
-                    int dx = x - centerChunkX;
-                    int dy = y - centerChunkY;
-                    int dz = z - centerChunkZ;
-                    double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    // ── Region helpers ────────────────────────────────────────────────────────
 
-                    if (distance <= radius) {
-                        getChunk(x, y, z);
-                    }
-                }
+    public synchronized List<Region> getVisibleRegions(float camX, float camY, float camZ,
+                                                       float maxDistance) {
+        List<Region> visible = new ArrayList<>();
+        for (Region r : regions.values()) {
+            if (r.isVisible(camX, camY, camZ, maxDistance)) visible.add(r);
+        }
+        return visible;
+    }
+
+    // ── Neighbor management ───────────────────────────────────────────────────
+
+    public void updateChunkNeighbors(Chunk chunk) {
+        int x = chunk.getChunkX();
+        int z = chunk.getChunkZ();
+
+        chunk.setNeighbor(Chunk.ChunkDirection.NORTH, getChunk(x, z - 1));
+        chunk.setNeighbor(Chunk.ChunkDirection.SOUTH, getChunk(x, z + 1));
+        chunk.setNeighbor(Chunk.ChunkDirection.EAST,  getChunk(x + 1, z));
+        chunk.setNeighbor(Chunk.ChunkDirection.WEST,  getChunk(x - 1, z));
+
+        Chunk north = getChunk(x, z - 1);
+        if (north != null) north.setNeighbor(Chunk.ChunkDirection.SOUTH, chunk);
+        Chunk south = getChunk(x, z + 1);
+        if (south != null) south.setNeighbor(Chunk.ChunkDirection.NORTH, chunk);
+        Chunk east  = getChunk(x + 1, z);
+        if (east  != null) east .setNeighbor(Chunk.ChunkDirection.WEST,  chunk);
+        Chunk west  = getChunk(x - 1, z);
+        if (west  != null) west .setNeighbor(Chunk.ChunkDirection.EAST,  chunk);
+    }
+
+    public void markNeighborsForRemesh(int chunkX, int chunkZ) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                Chunk neighbor = getChunk(chunkX + dx, chunkZ + dz);
+                if (neighbor != null) neighbor.setNeedsRemesh(true);
             }
         }
     }
 
-    /**
-     * ORIGINAL 3D chunk unloading (for reference).
-     */
-    public void unloadChunksOutside(int centerChunkX, int centerChunkY, int centerChunkZ, int radius) {
-        chunks.entrySet().removeIf(entry -> {
-            ChunkPos pos = entry.getKey();
-            int dx = pos.x - centerChunkX;
-            int dy = pos.y - centerChunkY;
-            int dz = pos.z - centerChunkZ;
-            double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    // ── Accessors ─────────────────────────────────────────────────────────────
 
-            if (distance > radius + 2) { // Add buffer
-                if(StrataClient.getInstance().getDebugInfo().showChunkDebug())
-                    LOGGER.debug("Unloading distant chunk at {}", pos);
-                return true;
-            }
-            return false;
-        });
+    public Collection<Chunk>  getAllChunks()  { return chunkCache.values(); }
+    public synchronized Collection<Region> getAllRegions() { return new ArrayList<>(regions.values()); }
+
+    public synchronized void clear() {
+        for (Chunk chunk : chunkCache.values()) chunk.clear();
+        chunkCache.clear();
+        regions.clear();
+        totalChunks .set(0);
+        totalRegions.set(0);
+        LOGGER.info("Cleared all chunks and regions");
     }
 
-    /**
-     * Gets all loaded chunks.
-     */
-    public Collection<Chunk> getLoadedChunks() {
-        return chunks.values();
+    // ── Key packing ───────────────────────────────────────────────────────────
+
+    private static long packChunkKey(int chunkX, int chunkZ) {
+        return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
     }
 
-    /**
-     * Gets the number of loaded chunks.
-     */
-    public int getLoadedChunkCount() {
-        return chunks.size();
+    private static long packRegionKey(int regionX, int regionY, int regionZ) {
+        return ((long) regionX << 42) | ((long) regionY << 21) | (regionZ & 0x1FFFFFL);
     }
 
-    /**
-     * Gets chunk generation statistics.
-     */
-    public ChunkGenerationManager.ChunkGenerationStats getGenerationStats() {
-        return generationManager.getStats();
+    // ── Getters / setters ─────────────────────────────────────────────────────
+
+    public int  getRenderDistance()             { return renderDistance; }
+    public void setRenderDistance(int distance) {
+        this.renderDistance = Math.max(2, Math.min(200, distance));
+        LOGGER.info("Render distance set to {} chunks", this.renderDistance);
     }
 
-    /**
-     * Clears all chunks (for world reloading).
-     */
-    public void clear() {
-        int count = chunks.size();
-        chunks.clear();
-        LOGGER.info("Unloaded {} chunks", count);
+    public int   getTotalChunks()   { return totalChunks.get(); }
+    public int   getTotalRegions()  { return totalRegions.get(); }
+
+    public float getTotalMemoryUsageMB() {
+        long total = 0;
+        for (Chunk c : chunkCache.values()) total += c.getMemoryUsage();
+        return total / (1024.0f * 1024.0f);
     }
 
-    /**
-     * Shuts down the chunk manager and generation threads.
-     */
-    public void shutdown() {
-        generationManager.shutdown();
-        clear();
-        LOGGER.info("Chunk manager shut down");
-    }
+    // ── Inner type ────────────────────────────────────────────────────────────
 
-    /**
-     * Gets the lighting engine for direct access if needed.
-     */
-    public LightingEngine getLightingEngine() {
-        return lightingEngine;
-    }
+    public static class ChunkPos {
+        public final int x, z;
+        public ChunkPos(int x, int z) { this.x = x; this.z = z; }
 
-    /**
-     * Immutable chunk position.
-     */
-    private record ChunkPos(int x, int y, int z) {
-        @Override
-        public String toString() {
-            return "[" + x + ", " + y + ", " + z + "]";
+        @Override public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof ChunkPos)) return false;
+            ChunkPos c = (ChunkPos) o;
+            return x == c.x && z == c.z;
         }
+        @Override public int    hashCode() { return 31 * x + z; }
+        @Override public String toString() { return String.format("ChunkPos[%d, %d]", x, z); }
     }
 }

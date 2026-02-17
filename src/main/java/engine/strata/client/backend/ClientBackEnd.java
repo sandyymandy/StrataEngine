@@ -25,7 +25,6 @@ public class ClientBackEnd implements Runnable {
     private final PlayerEntity player;
     private boolean running = true;
     private boolean hideCursor = true;
-    private Entity testEntity;
     private static final float TICKS_PER_SECOND = 20.0F;
     private static final float TIME_PER_TICK = 1.0F / TICKS_PER_SECOND;
 
@@ -49,9 +48,6 @@ public class ClientBackEnd implements Runnable {
 
     private void spawnTestEntities() {
         LOGGER.info("Spawning test entities...");
-        this.testEntity = EntityRegistry.BIA.create(world);
-        testEntity.setPosition(0,  120, -5);
-        world.addEntity(testEntity);
 
         for (int i = 0; i < 10; i++) {
             BiaEntity bia = EntityRegistry.BIA.create(world);
@@ -98,7 +94,6 @@ public class ClientBackEnd implements Runnable {
     }
 
     private void tick() {
-        this.testEntity.setPosition(0, testEntity.getPosition().getY(), testEntity.getPosition().getZ() + 0.02F);
         world.tick();
         StrataClient.getInstance().getCamera().tick();
     }

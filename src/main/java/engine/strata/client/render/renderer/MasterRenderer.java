@@ -15,8 +15,8 @@ import engine.strata.world.World;
 import engine.strata.world.block.Blocks;
 import engine.strata.world.block.DynamicTextureAtlas;
 import engine.strata.world.block.TextureAtlasManager;
+import engine.strata.world.chunk.render.ChunkMeshBuilder;
 import engine.strata.world.chunk.render.ChunkRenderer;
-import engine.strata.world.chunk.render.ChunkRenderingDebugger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.Map;
 
 import static engine.strata.util.math.Math.lerp;
-import static engine.strata.util.math.Math.lerpAngle;
 
 /**
  * Master renderer that coordinates all rendering passes.
@@ -48,13 +47,13 @@ public class MasterRenderer {
     private final GuiRenderer guiRenderer;
     private final EntityRenderDispatcher entityRenderDispatcher;
 
+    // Chunk rendering
+    private ChunkRenderer chunkRenderer;
+
     // Entity render distance
     private static final float ENTITY_RENDER_DISTANCE = 120.0f;
 
-    // Chunk rendering
-    private ChunkRenderer chunkRenderer;
     private boolean chunkRendererInitialized = false;
-    private boolean ranDiagnostics = false;
 
     // Render layer management
     private final Map<RenderLayer, BufferBuilder> buffers = new HashMap<>();
@@ -95,16 +94,27 @@ public class MasterRenderer {
         Identifier atlasId = Identifier.ofEngine("blocks/atlas");
 
         // 1. Build the dynamic atlas (this generates the GL texture ID)
-        DynamicTextureAtlas atlas = TextureAtlasManager.getInstance().initializeAtlas(Blocks.getAllBlocks(), 32);
+        DynamicTextureAtlas atlas = TextureAtlasManager.getInstance()
+                .initializeAtlas(Blocks.getAllBlocks(), 32);
 
         // 2. Wrap the GL ID in a Texture object and register it
         Texture atlasTexture = new Texture(atlas.getTextureId());
         TextureManager.register(atlasId, atlasTexture);
 
+        // 3. Initialize chunk mesher with atlas
+        ChunkMeshBuilder chunkMeshBuilder = world.initializeChunkMesher(atlas);
+
+        // 4. Start chunk threads
+        world.startChunkThreads(chunkMeshBuilder);
+
+        // 5. Create chunk renderer
         this.chunkRenderer = new ChunkRenderer(
                 world.getChunkManager(),
+                chunkMeshBuilder,
+                camera,
                 atlasId
         );
+
         this.chunkRendererInitialized = true;
         LOGGER.info("ChunkRenderer initialized");
     }
@@ -118,19 +128,6 @@ public class MasterRenderer {
         // Initialize chunk renderer on first render if world is available
         if (!chunkRendererInitialized && client.getWorld() != null) {
             initChunkRenderer(client.getWorld());
-
-            // Run diagnostics once after a few frames to let chunks generate
-            if (!ranDiagnostics) {
-                ranDiagnostics = true;
-                LOGGER.info("Scheduling chunk diagnostics for next frame...");
-            }
-        }
-
-        // Run diagnostics after chunks have had time to generate
-        if (ranDiagnostics && !debug.showChunkDebug() && client.getWorld() != null) {
-            // Run once, then disable
-            ranDiagnostics = false;
-            ChunkRenderingDebugger.diagnose(client.getWorld());
         }
 
         this.camera.update(client.getPlayer(), client.getWindow(), partialTicks, isInThirdPerson);
@@ -176,10 +173,14 @@ public class MasterRenderer {
 
         clearBuffers();
 
+        // Render chunks
         if (chunkRenderer != null) {
             renderChunks(partialTicks);
         } else if (client.getWorld() != null) {
-            LOGGER.warn("ChunkRenderer is null but world exists! Rendering will not work.");
+            // World exists but renderer not ready yet
+            if (debug.showRenderDebug()) {
+                LOGGER.warn("ChunkRenderer not initialized yet");
+            }
         }
 
         renderEntities(snapshots, partialTicks, deltaTime);
@@ -191,16 +192,17 @@ public class MasterRenderer {
      * Renders chunks with frustum culling.
      */
     private void renderChunks(float partialTicks) {
-        if (chunkRenderer == null) {
-            return;
-        }
-
         this.client.getWindow().setRenderPhase("Render Chunks");
-        chunkRenderer.render(camera, partialTicks);
 
-        if (debug.showRenderCullingDebug()) {
-//            ChunkRenderer.RenderStats stats = chunkRenderer.getStats();
-//            LOGGER.debug("Chunk rendering: {}", stats);
+        // ChunkRenderer handles all culling and rendering internally
+        chunkRenderer.render();
+
+        if (debug.showRenderDebug()) {
+            LOGGER.debug("Chunks: {} rendered, {} culled, {} triangles",
+                    chunkRenderer.getChunksRendered(),
+                    chunkRenderer.getChunksCulled(),
+                    chunkRenderer.getTrianglesRendered()
+            );
         }
     }
 
@@ -208,6 +210,8 @@ public class MasterRenderer {
      * Renders all entities in the world.
      */
     private void renderEntities(Map<Integer, EntityRenderSnapshot> snapshots, float partialTicks, float deltaTime) {
+        this.client.getWindow().setRenderPhase("Render Entities");
+
         World world = client.getWorld();
         if (world == null) {
             return;
@@ -378,16 +382,16 @@ public class MasterRenderer {
         return camera;
     }
 
+    public ChunkRenderer getChunkRenderer() {
+        return chunkRenderer;
+    }
+
     public void setThirdPerson(boolean thirdPerson) {
         this.isInThirdPerson = thirdPerson;
     }
 
     public boolean isThirdPerson() {
         return isInThirdPerson;
-    }
-
-    public ChunkRenderer getChunkRenderer() {
-        return chunkRenderer;
     }
 
     /**
@@ -397,10 +401,20 @@ public class MasterRenderer {
     public void reload() {
         ModelManager.clearCache();
         RenderLayers.clearCache();
+
         if (chunkRenderer != null) {
-//            chunkRenderer.clearCache();
+            chunkRenderer.disposeAll();
         }
+
         LOGGER.info("Reloaded renderer resources");
     }
 
+    /**
+     * Cleanup method for shutdown.
+     */
+    public void cleanup() {
+        if (chunkRenderer != null) {
+            chunkRenderer.disposeAll();
+        }
+    }
 }

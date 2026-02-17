@@ -5,360 +5,308 @@ import engine.strata.world.block.Blocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * OPTIMIZED CHUNK with palette-based storage.
+ * Represents a vertical column of subchunks.
+ * Dynamically allocates subchunks only when needed (non-air blocks exist).
  *
- * Memory savings:
- * - Old system: 12KB per chunk (short[16][16][16] + byte[16][16][16])
- * - New system: ~2-4KB per chunk (palette + indices)
- * - 70-80% memory reduction!
- *
- * How it works:
- * - Instead of storing every block ID directly, we store a "palette" of unique blocks
- * - Each block position stores an index into the palette (0-255)
- * - Most chunks only have 2-10 unique blocks, so palette is tiny
+ * Architecture:
+ * - Chunks are positioned in world space by (chunkX, chunkZ)
+ * - Each chunk contains a dynamic number of 32^3 subchunks along the Y axis
+ * - SubChunks are only allocated when they contain non-air blocks
+ * - This allows for infinite vertical height without memory waste
  */
 public class Chunk {
     private static final Logger LOGGER = LoggerFactory.getLogger("Chunk");
 
-    public static final int SIZE = 16;
-//    public static final int VERTICAL_SIZE = 200;
-    public static final int VOLUME = SIZE * SIZE * SIZE;
-
+    // Chunk position in chunk coordinates
     private final int chunkX;
-    private final int chunkY;
     private final int chunkZ;
 
-    // Palette: Maps palette index -> block numeric ID
-    private short[] palette;
-    private int paletteSize = 0;
+    // SubChunks indexed by Y level (each represents 32 blocks in height)
+    // Using ConcurrentHashMap for thread-safe dynamic allocation
+    private final ConcurrentHashMap<Integer, SubChunk> subChunks = new ConcurrentHashMap<>();
 
-    // Indices: For each block position, stores palette index
-    // We use byte array (256 values max) - most chunks have < 10 unique blocks
-    private byte[] indices;
+    // Mesh generation flag
+    private volatile boolean needsRemesh = true;
+    private volatile boolean isGenerated = false;
 
-    // Reverse lookup: block ID -> palette index (for fast writes)
-    private Map<Short, Byte> paletteReverse;
+    // Neighbor references (set after generation for mesh optimization)
+    private volatile Chunk northNeighbor;
+    private volatile Chunk southNeighbor;
+    private volatile Chunk eastNeighbor;
+    private volatile Chunk westNeighbor;
 
-    // Light storage - keep as is, but use flat array
-    private byte[] lightData; // Flat array: [x + y*SIZE + z*SIZE*SIZE]
-
-    private boolean dirty = true;
-    private boolean generated = false;
-
-    public Chunk(int chunkX, int chunkY, int chunkZ) {
+    public Chunk(int chunkX, int chunkZ) {
         this.chunkX = chunkX;
-        this.chunkY = chunkY;
         this.chunkZ = chunkZ;
-
-        // Initialize with single air block in palette
-        this.palette = new short[16]; // Start small, grow as needed
-        this.paletteReverse = new HashMap<>();
-        this.indices = new byte[VOLUME];
-        this.lightData = new byte[VOLUME];
-
-        // Add air to palette at index 0
-        short airId = Blocks.AIR.getNumericId();
-        palette[0] = airId;
-        paletteReverse.put(airId, (byte) 0);
-        paletteSize = 1;
-
-        // All blocks start as air (index 0)
-        // No need to initialize - Java bytes default to 0
     }
 
     /**
-     * Gets the block at local coordinates (0-15).
+     * Gets a block in world coordinates.
+     * Automatically converts to local chunk coordinates.
      */
-    public Block getBlock(int x, int y, int z) {
-        if (!isValidLocalCoord(x, y, z)) {
-            return Blocks.AIR;
+    public short getBlockWorld(int worldX, int worldY, int worldZ) {
+        // Convert world coords to local coords
+        int localX = worldX - (chunkX * SubChunk.SIZE);
+        int localZ = worldZ - (chunkZ * SubChunk.SIZE);
+
+        return getBlock(localX, worldY, localZ);
+    }
+
+    /**
+     * Gets a block at local coordinates within this chunk.
+     * @param x Local X (0-31)
+     * @param y World Y (absolute)
+     * @param z Local Z (0-31)
+     */
+    public short getBlock(int x, int y, int z) {
+        // Bounds check
+        if (x < 0 || x >= SubChunk.SIZE || z < 0 || z >= SubChunk.SIZE || y < 0) {
+            return Blocks.AIR.getNumericId();
         }
 
-        int index = getIndex(x, y, z);
-        byte paletteIndex = indices[index];
-        short numericId = palette[paletteIndex & 0xFF]; // Treat as unsigned
+        // Calculate which subchunk this belongs to
+        int subChunkY = y / SubChunk.SIZE;
+        SubChunk subChunk = subChunks.get(subChunkY);
 
-        return Blocks.getByNumericId(numericId);
+        // If no subchunk exists, it's air
+        if (subChunk == null) {
+            return Blocks.AIR.getNumericId();
+        }
+
+        // Get block from subchunk (convert Y to local subchunk coordinate)
+        int localY = y % SubChunk.SIZE;
+        return subChunk.getBlock(x, localY, z);
     }
 
     /**
-     * Sets the block at local coordinates (0-15).
+     * Sets a block at local coordinates within this chunk.
      */
-    public void setBlock(int x, int y, int z, Block block) {
-        if (!isValidLocalCoord(x, y, z)) {
-            LOGGER.warn("Attempted to set block outside chunk bounds: ({}, {}, {})", x, y, z);
+    public void setBlock(int x, int y, int z, short blockId) {
+        // Bounds check
+        if (x < 0 || x >= SubChunk.SIZE || z < 0 || z >= SubChunk.SIZE || y < 0) {
             return;
         }
 
-        short numericId = block.getNumericId();
-        if (numericId == -1) {
-            LOGGER.error("Block {} has not been registered!", block.getId());
+        // Calculate which subchunk this belongs to
+        int subChunkY = y / SubChunk.SIZE;
+        int localY = y % SubChunk.SIZE;
+
+        // If setting air and no subchunk exists, nothing to do
+        if (blockId == Blocks.AIR.getNumericId() && !subChunks.containsKey(subChunkY)) {
             return;
         }
 
-        // Get or add to palette
-        byte paletteIndex = getOrAddToPalette(numericId);
+        // Get or create subchunk
+        SubChunk subChunk = subChunks.computeIfAbsent(subChunkY,
+                key -> new SubChunk(chunkX, key, chunkZ));
 
-        // Update block data
-        int index = getIndex(x, y, z);
-        indices[index] = paletteIndex;
+        // Set the block
+        subChunk.setBlock(x, localY, z, blockId);
 
-        dirty = true;
+        // If subchunk became empty, remove it to save memory
+        if (subChunk.isEmpty()) {
+            subChunks.remove(subChunkY);
+        }
+
+        // Mark for remesh
+        setNeedsRemesh(true);
+
+        // Mark neighbors for remesh if on chunk boundary
+        if (x == 0 && westNeighbor != null) westNeighbor.setNeedsRemesh(true);
+        if (x == SubChunk.SIZE - 1 && eastNeighbor != null) eastNeighbor.setNeedsRemesh(true);
+        if (z == 0 && northNeighbor != null) northNeighbor.setNeedsRemesh(true);
+        if (z == SubChunk.SIZE - 1 && southNeighbor != null) southNeighbor.setNeedsRemesh(true);
     }
 
     /**
-     * Gets or adds a block ID to the palette.
-     * Returns the palette index.
+     * Sets a block in world coordinates.
      */
-    private byte getOrAddToPalette(short blockId) {
-        Byte existing = paletteReverse.get(blockId);
-        if (existing != null) {
-            return existing;
-        }
+    public void setBlockWorld(int worldX, int worldY, int worldZ, short blockId) {
+        int localX = worldX - (chunkX * SubChunk.SIZE);
+        int localZ = worldZ - (chunkZ * SubChunk.SIZE);
+        setBlock(localX, worldY, localZ, blockId);
+    }
 
-        // Need to add new block to palette
-        if (paletteSize >= 256) {
-            // Palette overflow - this is rare but possible
-            // Fall back to most common block behavior
-            LOGGER.warn("Chunk palette overflow at {}, compacting...", this);
-            compactPalette();
+    /**
+     * Gets block state at local coordinates.
+     */
+    public int getBlockState(int x, int y, int z) {
+        int subChunkY = y / SubChunk.SIZE;
+        SubChunk subChunk = subChunks.get(subChunkY);
 
-            // Try again after compacting
-            existing = paletteReverse.get(blockId);
-            if (existing != null) {
-                return existing;
-            }
-
-            // Still no room - this shouldn't happen in normal gameplay
-            LOGGER.error("Chunk palette completely full at {}, reusing air index", this);
+        if (subChunk == null) {
             return 0;
         }
 
-        // Grow palette if needed
-        if (paletteSize >= palette.length) {
-            short[] newPalette = new short[Math.min(256, palette.length * 2)];
-            System.arraycopy(palette, 0, newPalette, 0, paletteSize);
-            palette = newPalette;
-        }
-
-        // Add to palette
-        byte newIndex = (byte) paletteSize;
-        palette[paletteSize] = blockId;
-        paletteReverse.put(blockId, newIndex);
-        paletteSize++;
-
-        return newIndex;
+        int localY = y % SubChunk.SIZE;
+        return subChunk.getBlockState(x, localY, z);
     }
 
     /**
-     * Compacts the palette by removing unused entries.
-     * Called when palette is full.
+     * Sets block state at local coordinates.
      */
-    private void compactPalette() {
-        // Count usage of each palette entry
-        int[] usage = new int[256];
-        for (byte index : indices) {
-            usage[index & 0xFF]++;
-        }
+    public void setBlockState(int x, int y, int z, int state) {
+        int subChunkY = y / SubChunk.SIZE;
 
-        // Build new palette with only used entries
-        short[] newPalette = new short[16];
-        Map<Short, Byte> newReverse = new HashMap<>();
-        byte[] remapping = new byte[256];
-        int newSize = 0;
+        // Get or create subchunk (states require a subchunk to exist)
+        SubChunk subChunk = subChunks.computeIfAbsent(subChunkY,
+                key -> new SubChunk(chunkX, key, chunkZ));
 
-        for (int oldIndex = 0; oldIndex < paletteSize; oldIndex++) {
-            if (usage[oldIndex] > 0) {
-                short blockId = palette[oldIndex];
-                newPalette[newSize] = blockId;
-                newReverse.put(blockId, (byte) newSize);
-                remapping[oldIndex] = (byte) newSize;
-                newSize++;
+        int localY = y % SubChunk.SIZE;
+        subChunk.setBlockState(x, localY, z, state);
+    }
 
-                // Grow if needed
-                if (newSize >= newPalette.length && newSize < 256) {
-                    short[] temp = new short[Math.min(256, newPalette.length * 2)];
-                    System.arraycopy(newPalette, 0, temp, 0, newSize);
-                    newPalette = temp;
+    /**
+     * Fills a region with a specific block.
+     */
+    public void fill(int startX, int startY, int startZ,
+                     int endX, int endY, int endZ, short blockId) {
+        for (int y = startY; y <= endY; y++) {
+            for (int z = startZ; z <= endZ && z < SubChunk.SIZE; z++) {
+                for (int x = startX; x <= endX && x < SubChunk.SIZE; x++) {
+                    setBlock(x, y, z, blockId);
                 }
             }
         }
-
-        // Remap all indices
-        for (int i = 0; i < indices.length; i++) {
-            indices[i] = remapping[indices[i] & 0xFF];
-        }
-
-        palette = newPalette;
-        paletteReverse = newReverse;
-        paletteSize = newSize;
-
-        LOGGER.debug("Compacted palette from {} to {} entries", usage.length, newSize);
     }
-
-    // ==================== LIGHTING (Optimized to flat array) ====================
-
-    public int getSkyLight(int x, int y, int z) {
-        if (!isValidLocalCoord(x, y, z)) {
-            return 15;
-        }
-        int index = getIndex(x, y, z);
-        return (lightData[index] >> 4) & 0x0F;
-    }
-
-    public void setSkyLight(int x, int y, int z, int level) {
-        if (!isValidLocalCoord(x, y, z)) {
-            return;
-        }
-        level = Math.max(0, Math.min(15, level));
-        int index = getIndex(x, y, z);
-        lightData[index] = (byte) ((lightData[index] & 0x0F) | (level << 4));
-        dirty = true;
-    }
-
-    public int getBlockLight(int x, int y, int z) {
-        if (!isValidLocalCoord(x, y, z)) {
-            return 0;
-        }
-        int index = getIndex(x, y, z);
-        return lightData[index] & 0x0F;
-    }
-
-    public void setBlockLight(int x, int y, int z, int level) {
-        if (!isValidLocalCoord(x, y, z)) {
-            return;
-        }
-        level = Math.max(0, Math.min(15, level));
-        int index = getIndex(x, y, z);
-        lightData[index] = (byte) ((lightData[index] & 0xF0) | level);
-        dirty = true;
-    }
-
-    public int getLight(int x, int y, int z) {
-        return Math.max(getSkyLight(x, y, z), getBlockLight(x, y, z));
-    }
-
-    // ==================== HELPERS ====================
 
     /**
-     * Converts 3D coordinates to flat array index.
+     * Gets the Y range of this chunk (min and max Y with blocks).
+     * Returns null if chunk is completely empty.
      */
-    private int getIndex(int x, int y, int z) {
-        return x + y * SIZE + z * SIZE * SIZE;
+    public int[] getYRange() {
+        if (subChunks.isEmpty()) {
+            return null;
+        }
+
+        int minY = Integer.MAX_VALUE;
+        int maxY = Integer.MIN_VALUE;
+
+        for (Integer subChunkY : subChunks.keySet()) {
+            int yStart = subChunkY * SubChunk.SIZE;
+            int yEnd = yStart + SubChunk.SIZE - 1;
+
+            minY = Math.min(minY, yStart);
+            maxY = Math.max(maxY, yEnd);
+        }
+
+        return new int[] { minY, maxY };
     }
 
-    private boolean isValidLocalCoord(int x, int y, int z) {
-        return x >= 0 && x < SIZE && y >= 0 && y < SIZE && z >= 0 && z < SIZE;
+    /**
+     * Checks if this chunk is completely empty.
+     */
+    public boolean isEmpty() {
+        return subChunks.isEmpty();
     }
 
-    public boolean isDirty() {
-        return dirty;
+    /**
+     * Gets the number of subchunks in this chunk.
+     */
+    public int getSubChunkCount() {
+        return subChunks.size();
     }
 
-    public void markClean() {
-        this.dirty = false;
+    /**
+     * Gets a subchunk at a specific Y level.
+     */
+    public SubChunk getSubChunk(int subChunkY) {
+        return subChunks.get(subChunkY);
     }
 
-    public void markDirty() {
-        this.dirty = true;
+    /**
+     * Gets all subchunk Y levels in this chunk.
+     */
+    public Iterable<Integer> getSubChunkLevels() {
+        return subChunks.keySet();
     }
 
-    public boolean isGenerated() {
-        return generated;
+    /**
+     * Estimates memory usage of this chunk in bytes.
+     */
+    public int getMemoryUsage() {
+        int usage = 0;
+
+        for (SubChunk subChunk : subChunks.values()) {
+            usage += subChunk.getMemoryUsage();
+        }
+
+        return usage;
     }
 
-    public void markGenerated() {
-        this.generated = true;
-    }
+    // Getters and setters
 
     public int getChunkX() {
         return chunkX;
-    }
-
-    public int getChunkY() {
-        return chunkY;
     }
 
     public int getChunkZ() {
         return chunkZ;
     }
 
-    public int localToWorldX(int localX) {
-        return chunkX * SIZE + localX;
+    public boolean needsRemesh() {
+        return needsRemesh;
     }
 
-    public int localToWorldY(int localY) {
-        return chunkY * SIZE + localY;
+    public void setNeedsRemesh(boolean needsRemesh) {
+        this.needsRemesh = needsRemesh;
     }
 
-    public int localToWorldZ(int localZ) {
-        return chunkZ * SIZE + localZ;
+    public boolean isGenerated() {
+        return isGenerated;
+    }
+
+    public void setGenerated(boolean generated) {
+        this.isGenerated = generated;
+    }
+
+    // Neighbor management
+
+    public void setNeighbor(ChunkDirection direction, Chunk neighbor) {
+        switch (direction) {
+            case NORTH: northNeighbor = neighbor; break;
+            case SOUTH: southNeighbor = neighbor; break;
+            case EAST: eastNeighbor = neighbor; break;
+            case WEST: westNeighbor = neighbor; break;
+        }
+    }
+
+    public Chunk getNeighbor(ChunkDirection direction) {
+        switch (direction) {
+            case NORTH: return northNeighbor;
+            case SOUTH: return southNeighbor;
+            case EAST: return eastNeighbor;
+            case WEST: return westNeighbor;
+            default: return null;
+        }
+    }
+
+    public boolean hasAllNeighbors() {
+        return northNeighbor != null && southNeighbor != null &&
+                eastNeighbor != null && westNeighbor != null;
     }
 
     /**
-     * Checks if the chunk is empty (all air).
-     * OPTIMIZED: Just check if palette only has air.
+     * Clears all chunk data and prepares for unloading.
      */
-    public boolean isEmpty() {
-        if (paletteSize == 1 && palette[0] == Blocks.AIR.getNumericId()) {
-            return true;
-        }
-
-        // If palette has multiple blocks, check if all indices point to air
-        byte airIndex = paletteReverse.getOrDefault(Blocks.AIR.getNumericId(), (byte) -1);
-        if (airIndex == -1) {
-            return false; // No air in palette means not empty
-        }
-
-        for (byte index : indices) {
-            if (index != airIndex) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Gets memory usage estimate in bytes.
-     */
-    public int getMemoryUsage() {
-        int paletteBytes = palette.length * 2; // short array
-        int indicesBytes = indices.length; // byte array
-        int lightBytes = lightData.length; // byte array
-        int reverseMapBytes = paletteReverse.size() * 16; // rough estimate for HashMap
-
-        return paletteBytes + indicesBytes + lightBytes + reverseMapBytes;
-    }
-
-    /**
-     * Gets the number of unique blocks in this chunk.
-     */
-    public int getUniqueBlockCount() {
-        return paletteSize;
+    public void clear() {
+        subChunks.clear();
+        northNeighbor = null;
+        southNeighbor = null;
+        eastNeighbor = null;
+        westNeighbor = null;
     }
 
     @Override
     public String toString() {
-        return String.format("Chunk[%d, %d, %d] (palette: %d, mem: ~%d bytes)",
-                chunkX, chunkY, chunkZ, paletteSize, getMemoryUsage());
+        return String.format("Chunk[%d, %d] (subchunks: %d, memory: %d KB)",
+                chunkX, chunkZ, subChunks.size(), getMemoryUsage() / 1024);
     }
 
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (!(obj instanceof Chunk other)) return false;
-        return chunkX == other.chunkX && chunkY == other.chunkY && chunkZ == other.chunkZ;
-    }
-
-    @Override
-    public int hashCode() {
-        int result = chunkX;
-        result = 31 * result + chunkY;
-        result = 31 * result + chunkZ;
-        return result;
+    public enum ChunkDirection {
+        NORTH, SOUTH, EAST, WEST
     }
 }

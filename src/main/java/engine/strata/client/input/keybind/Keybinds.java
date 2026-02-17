@@ -58,11 +58,16 @@ public class Keybinds {
     );
 
     public static final Keybind FAST = new Keybind(
-            Identifier.of("strata", "slow"),
+            Identifier.of("strata", "fast"),
             GLFW.GLFW_KEY_LEFT_SHIFT
     );
 
-    public static final Keybind DEBUG_RELOAD_CHUNKS = new Keybind(
+    public static final Keybind FAST_PLUS = new Keybind(
+            Identifier.of("strata", "fastplus"),
+            GLFW.GLFW_KEY_LEFT_ALT
+    );
+
+    public static final Keybind PLACE = new Keybind(
             Identifier.of("strata", "debug_chunks"),
             GLFW.GLFW_KEY_P
     );

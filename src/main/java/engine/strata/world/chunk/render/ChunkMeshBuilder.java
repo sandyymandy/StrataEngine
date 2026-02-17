@@ -1,298 +1,345 @@
 package engine.strata.world.chunk.render;
 
-import engine.strata.util.Identifier;
+import engine.strata.client.StrataClient;
 import engine.strata.world.block.Block;
 import engine.strata.world.block.BlockTexture;
+import engine.strata.world.block.Blocks;
 import engine.strata.world.block.DynamicTextureAtlas;
 import engine.strata.world.chunk.Chunk;
 import engine.strata.world.chunk.ChunkManager;
+import engine.strata.world.chunk.SubChunk;
+import org.lwjgl.BufferUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.nio.FloatBuffer;
+import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Builds optimized meshes for chunk rendering.
- * Uses face culling to only render visible faces (not hidden by adjacent blocks).
- * Supports both index-based and identifier-based texture references.
+ * Builds chunk meshes on a dedicated thread.
+ *
+ * Vertex layout per vertex: [ x, y, z,  u, v,  brightness ] — 6 floats.
+ *
+ * This matches the chunk vertex shader exactly:
+ *   layout(location = 0) in vec3 a_Position;     // x, y, z
+ *   layout(location = 1) in vec2 a_TexCoord;     // u, v
+ *   layout(location = 2) in float a_Brightness;  // single float, NOT vec4
+ *
+ * The old layout wrote 9 floats (pos + uv + rgba) but the shader only
+ * declared a_Brightness as a float at location 2 — causing the GPU to
+ * misread the stride, garbling positions and UVs for every vertex after
+ * the first, and producing wrong colours across the whole mesh.
  */
-public class ChunkMeshBuilder {
+public class ChunkMeshBuilder implements Runnable {
     private static final Logger LOGGER = LoggerFactory.getLogger("ChunkMesh");
+
+    private static final int INITIAL_FLOAT_CAPACITY = (4 * 1024 * 1024) / Float.BYTES;
+
+    // FIX: 6 floats per vertex to match shader layout (was 9).
+    // pos(3) + uv(2) + brightness(1) = 6
+    static final int FLOATS_PER_VERTEX = 6;
 
     private final ChunkManager chunkManager;
     private final DynamicTextureAtlas textureAtlas;
 
+    private final Set<ChunkManager.ChunkPos> meshingQueue = ConcurrentHashMap.newKeySet();
+    private final Queue<MeshUploadTask>      uploadQueue  = new ConcurrentLinkedQueue<>();
+
+    private final AtomicBoolean running = new AtomicBoolean(true);
+    private final AtomicBoolean paused  = new AtomicBoolean(false);
+
+    private int  chunksMesshed   = 0;
+    private long totalMeshTimeNs = 0;
+
     public ChunkMeshBuilder(ChunkManager chunkManager, DynamicTextureAtlas textureAtlas) {
         this.chunkManager = chunkManager;
         this.textureAtlas = textureAtlas;
+        LOGGER.info("ChunkMesher initialized");
     }
 
-    /**
-     * Builds a mesh for a chunk with face culling and lighting.
-     * Only creates faces that are visible (adjacent to air or transparent blocks).
-     */
-    public ChunkMesh buildMesh(Chunk chunk) {
-        long startTime = System.nanoTime();
+    // ── Thread loop ──────────────────────────────────────────────────────────
 
-        List<ChunkVertex> vertices = new ArrayList<>();
-        List<Integer> indices = new ArrayList<>();
+    @Override
+    public void run() {
+        Thread.currentThread().setName("ChunkMesh");
+        LOGGER.info("Chunk meshing thread started");
 
-        int vertexCount = 0;
-        int facesAdded = 0;
+        while (running.get()) {
+            try {
+                if (paused.get()) { Thread.sleep(100); continue; }
 
-        // Iterate through all blocks in the chunk
-        for (int x = 0; x < Chunk.SIZE; x++) {
-            for (int y = 0; y < Chunk.SIZE; y++) {
-                for (int z = 0; z < Chunk.SIZE; z++) {
-                    Block block = chunk.getBlock(x, y, z);
+                ChunkManager.ChunkPos pos = pollQueue();
+                if (pos == null) { Thread.sleep(50); continue; }
 
-                    // Skip air blocks
-                    if (block.isAir()) {
-                        continue;
-                    }
+                meshChunk(pos.x, pos.z);
 
-                    // Add only visible faces (those adjacent to air or transparent blocks)
-                    int beforeVertices = vertices.size();
-                    vertexCount = addBlockFaces(chunk, x, y, z, block,
-                            vertices, indices, vertexCount);
-                    facesAdded += (vertices.size() - beforeVertices) / 4;
-                }
+            } catch (InterruptedException e) {
+                LOGGER.warn("Chunk meshing interrupted", e);
+                break;
+            } catch (Exception e) {
+                LOGGER.error("Error meshing chunk", e);
             }
         }
 
-        long endTime = System.nanoTime();
-        double timeMs = (endTime - startTime) / 1_000_000.0;
-
-        if (facesAdded > 0) {
-            LOGGER.debug("Built mesh for {} with {} vertices, {} faces in {}ms",
-                    chunk, vertices.size(), facesAdded, timeMs);
-        }
-
-        return new ChunkMesh(
-                vertices.toArray(new ChunkVertex[0]),
-                indices.stream().mapToInt(Integer::intValue).toArray(),
-                chunk.getChunkX(),
-                chunk.getChunkY(),
-                chunk.getChunkZ()
-        );
+        LOGGER.info("Chunk meshing thread stopped. Total meshed: {}", chunksMesshed);
     }
 
-    /**
-     * Adds faces for a block, culling hidden ones.
-     * ONLY CREATES FACES THAT ARE VISIBLE (adjacent to air or transparent blocks).
-     */
-    private int addBlockFaces(Chunk chunk, int x, int y, int z, Block block,
-                              List<ChunkVertex> vertices, List<Integer> indices,
-                              int vertexOffset) {
-
-        int light = chunk.getLight(x, y, z);
-        float brightness = light / 15.0f;
-
-        BlockTexture blockTexture = block.getTexture();
-        if (blockTexture == null) {
-            return vertexOffset; // No texture, skip rendering
-        }
-
-        // Check each face and only render if it's exposed to air/transparency
-
-        // Bottom face (Y-)
-        if (shouldRenderFace(chunk, x, y - 1, z)) {
-            addFace(vertices, indices, x, y, z, Face.BOTTOM, blockTexture, brightness, vertexOffset);
-            vertexOffset += 4;
-        }
-
-        // Top face (Y+)
-        if (shouldRenderFace(chunk, x, y + 1, z)) {
-            addFace(vertices, indices, x, y, z, Face.TOP, blockTexture, brightness, vertexOffset);
-            vertexOffset += 4;
-        }
-
-        // North face (Z-)
-        if (shouldRenderFace(chunk, x, y, z - 1)) {
-            addFace(vertices, indices, x, y, z, Face.NORTH, blockTexture, brightness, vertexOffset);
-            vertexOffset += 4;
-        }
-
-        // South face (Z+)
-        if (shouldRenderFace(chunk, x, y, z + 1)) {
-            addFace(vertices, indices, x, y, z, Face.SOUTH, blockTexture, brightness, vertexOffset);
-            vertexOffset += 4;
-        }
-
-        // West face (X-)
-        if (shouldRenderFace(chunk, x - 1, y, z)) {
-            addFace(vertices, indices, x, y, z, Face.WEST, blockTexture, brightness, vertexOffset);
-            vertexOffset += 4;
-        }
-
-        // East face (X+)
-        if (shouldRenderFace(chunk, x + 1, y, z)) {
-            addFace(vertices, indices, x, y, z, Face.EAST, blockTexture, brightness, vertexOffset);
-            vertexOffset += 4;
-        }
-
-        return vertexOffset;
+    private synchronized ChunkManager.ChunkPos pollQueue() {
+        if (meshingQueue.isEmpty()) return null;
+        ChunkManager.ChunkPos pos = meshingQueue.iterator().next();
+        meshingQueue.remove(pos);
+        return pos;
     }
 
-    /**
-     * Checks if a face should be rendered based on neighbor block.
-     * Returns true if the neighbor is air or transparent (face is visible).
-     * Returns false if the neighbor is solid opaque (face is hidden).
-     */
+    // ── Mesh building ────────────────────────────────────────────────────────
+
+    private void meshChunk(int chunkX, int chunkZ) {
+        long  t0    = System.nanoTime();
+        Chunk chunk = chunkManager.getChunk(chunkX, chunkZ);
+        if (chunk == null || !chunk.isGenerated()) return;
+
+        FloatList verts = new FloatList(INITIAL_FLOAT_CAPACITY);
+        buildChunkMesh(chunk, verts);
+
+        FloatBuffer data        = verts.toFlippedBuffer();
+        int         vertexCount = data.limit() / FLOATS_PER_VERTEX;
+
+        uploadQueue.offer(new MeshUploadTask(chunkX, chunkZ, data, vertexCount));
+        chunk.setNeedsRemesh(false);
+
+        chunksMesshed++;
+        totalMeshTimeNs += System.nanoTime() - t0;
+
+        if (StrataClient.getInstance().getDebugInfo().showWorldDebug() && chunksMesshed % 10 == 0) {
+            float avg = (totalMeshTimeNs / chunksMesshed) / 1_000_000.0f;
+            LOGGER.debug("Meshed {} chunks, avg {}", chunksMesshed, String.format("%.2f ms", avg));
+        }
+    }
+
+    private void buildChunkMesh(Chunk chunk, FloatList verts) {
+        int[] yRange = chunk.getYRange();
+        if (yRange == null) return;
+
+        for (int y = yRange[0]; y <= yRange[1]; y++) {
+            for (int z = 0; z < SubChunk.SIZE; z++) {
+                for (int x = 0; x < SubChunk.SIZE; x++) {
+                    short blockId = chunk.getBlock(x, y, z);
+                    if (blockId == Blocks.AIR.getNumericId()) continue;
+
+                    Block block = Blocks.getByNumericId(blockId);
+                    buildBlockFaces(chunk, x, y, z, block, verts);
+                }
+            }
+        }
+    }
+
+    // ── Face visibility ──────────────────────────────────────────────────────
+
+    private void buildBlockFaces(Chunk chunk, int x, int y, int z, Block block, FloatList v) {
+        int wx = chunk.getChunkX() * SubChunk.SIZE + x;
+        int wz = chunk.getChunkZ() * SubChunk.SIZE + z;
+
+        if (shouldRenderFace(chunk, x, y + 1, z)) buildTopFace   (wx, y, wz, block, v);
+        if (shouldRenderFace(chunk, x, y - 1, z)) buildBottomFace(wx, y, wz, block, v);
+        if (shouldRenderFace(chunk, x, y, z - 1)) buildNorthFace (wx, y, wz, block, v);
+        if (shouldRenderFace(chunk, x, y, z + 1)) buildSouthFace (wx, y, wz, block, v);
+        if (shouldRenderFace(chunk, x - 1, y, z)) buildWestFace  (wx, y, wz, block, v);
+        if (shouldRenderFace(chunk, x + 1, y, z)) buildEastFace  (wx, y, wz, block, v);
+    }
+
     private boolean shouldRenderFace(Chunk chunk, int x, int y, int z) {
-        // Handle chunk boundaries - check neighbor chunks
-        if (x < 0 || x >= Chunk.SIZE || y < 0 || y >= Chunk.SIZE ||
-                z < 0 || z >= Chunk.SIZE) {
+        if (y < 0) return true;
 
-            // Convert to world coordinates and check neighbor chunk
-            int worldX = chunk.localToWorldX(x);
-            int worldY = chunk.localToWorldY(y);
-            int worldZ = chunk.localToWorldZ(z);
-
-            Block neighborBlock = chunkManager.getBlock(worldX, worldY, worldZ);
-
-            // Render face if neighbor is air or transparent
-            return neighborBlock.isAir() || !neighborBlock.isOpaque();
+        if (x < 0 || x >= SubChunk.SIZE || z < 0 || z >= SubChunk.SIZE) {
+            return shouldRenderFaceNeighbor(chunk, x, y, z);
         }
 
-        // Check within current chunk
-        Block neighborBlock = chunk.getBlock(x, y, z);
-
-        // Render face if neighbor is air or transparent
-        return neighborBlock.isAir() || !neighborBlock.isOpaque();
+        short id = chunk.getBlock(x, y, z);
+        if (id == Blocks.AIR.getNumericId()) return true;
+        return !Blocks.getByNumericId(id).isOpaque();
     }
 
+    private boolean shouldRenderFaceNeighbor(Chunk chunk, int x, int y, int z) {
+        Chunk neighbor;
+        int lx = x, lz = z;
+
+        if      (x < 0)              { neighbor = chunk.getNeighbor(Chunk.ChunkDirection.WEST);  lx = SubChunk.SIZE - 1; }
+        else if (x >= SubChunk.SIZE) { neighbor = chunk.getNeighbor(Chunk.ChunkDirection.EAST);  lx = 0; }
+        else if (z < 0)              { neighbor = chunk.getNeighbor(Chunk.ChunkDirection.NORTH); lz = SubChunk.SIZE - 1; }
+        else                         { neighbor = chunk.getNeighbor(Chunk.ChunkDirection.SOUTH); lz = 0; }
+
+        if (neighbor == null) return true;
+
+        short id = neighbor.getBlock(lx, y, lz);
+        if (id == Blocks.AIR.getNumericId()) return true;
+        return !Blocks.getByNumericId(id).isOpaque();
+    }
+
+    // ── UV helper ────────────────────────────────────────────────────────────
+
+    /** Returns [minU, minV, maxU, maxV] for the given face (inner tile region, padding excluded). */
+    private float[] uvs(Block block, BlockTexture.Face face) {
+        BlockTexture.TextureReference ref = block.getTexture().getTextureForFace(face);
+        return ref.isIdentifier()
+                ? textureAtlas.getUVs(ref.getIdentifier())
+                : textureAtlas.getUVs(ref.getIndex());
+    }
+
+    // ── Vertex helper ────────────────────────────────────────────────────────
+
     /**
-     * Adds vertices and indices for a single face with proper texture coordinates.
-     * Resolves texture references to atlas indices automatically.
+     * Write one vertex: pos(3) + uv(2) + brightness(1) = 6 floats.
+     *
+     * FIX: was writing 9 floats [x,y,z, u,v, r,g,b,a] but the vertex shader
+     * declares a_Brightness as a single float at location 2, not a vec4.
+     * Writing 4 floats where 1 is expected shifts every subsequent vertex's
+     * data by +3 floats, so positions and UVs were read from the wrong bytes.
      */
-    private void addFace(List<ChunkVertex> vertices, List<Integer> indices,
-                         int x, int y, int z, Face face, BlockTexture blockTexture,
-                         float brightness, int vertexOffset) {
+    private void vert(FloatList v, float x, float y, float z,
+                      float u, float tv, float brightness) {
+        v.add(x); v.add(y); v.add(z);
+        v.add(u); v.add(tv);
+        v.add(brightness);   // single float, matches "in float a_Brightness"
+    }
 
-        float[][] faceVertices = getFaceVertices(face, x, y, z);
+    // ── Face builders ────────────────────────────────────────────────────────
 
-        // Get the texture for this face
-        BlockTexture.Face blockFace = BlockTexture.Face.valueOf(face.name());
-        int textureIndex = resolveTextureIndex(blockTexture, blockFace);
+    private void buildTopFace(int x, int y, int z, Block block, FloatList v) {
+        float[] u = uvs(block, BlockTexture.Face.TOP);
+        float s = 1.0f;
+        vert(v, x+1, y+1, z+1, u[2],u[3], s);
+        vert(v, x+1, y+1, z,   u[2],u[1], s);
+        vert(v, x,   y+1, z,   u[0],u[1], s);
+        vert(v, x,   y+1, z+1, u[0],u[3], s);
+        vert(v, x+1, y+1, z+1, u[2],u[3], s);
+        vert(v, x,   y+1, z,   u[0],u[1], s);
+    }
 
-        // Add 4 vertices for the face with texture coordinates from atlas
-        for (int i = 0; i < faceVertices.length; i++) {
-            float[] vertex = faceVertices[i];
+    private void buildBottomFace(int x, int y, int z, Block block, FloatList v) {
+        float[] u = uvs(block, BlockTexture.Face.BOTTOM);
+        float s = 0.7f;
+        vert(v, x,   y, z+1, u[0],u[3], s);
+        vert(v, x+1, y, z+1, u[2],u[3], s);
+        vert(v, x+1, y, z,   u[2],u[1], s);
+        vert(v, x,   y, z+1, u[0],u[3], s);
+        vert(v, x+1, y, z,   u[2],u[1], s);
+        vert(v, x,   y, z,   u[0],u[1], s);
+    }
 
-            // Get UV coordinates from the texture atlas
-            float[] uv = textureAtlas.getUV(textureIndex, vertex[3], vertex[4]);
+    private void buildNorthFace(int x, int y, int z, Block block, FloatList v) {
+        float[] u = uvs(block, BlockTexture.Face.NORTH);
+        float s = 0.8f;
+        vert(v, x+1, y,   z, u[2],u[3], s);
+        vert(v, x,   y,   z, u[0],u[3], s);
+        vert(v, x,   y+1, z, u[0],u[1], s);
+        vert(v, x+1, y,   z, u[2],u[3], s);
+        vert(v, x,   y+1, z, u[0],u[1], s);
+        vert(v, x+1, y+1, z, u[2],u[1], s);
+    }
 
-            vertices.add(new ChunkVertex(
-                    vertex[0], vertex[1], vertex[2],  // Position
-                    uv[0], uv[1],                      // UV from atlas
-                    brightness                          // Lighting
-            ));
+    private void buildSouthFace(int x, int y, int z, Block block, FloatList v) {
+        float[] u = uvs(block, BlockTexture.Face.SOUTH);
+        float s = 0.8f;
+        vert(v, x,   y,   z+1, u[0],u[3], s);
+        vert(v, x+1, y,   z+1, u[2],u[3], s);
+        vert(v, x+1, y+1, z+1, u[2],u[1], s);
+        vert(v, x,   y,   z+1, u[0],u[3], s);
+        vert(v, x+1, y+1, z+1, u[2],u[1], s);
+        vert(v, x,   y+1, z+1, u[0],u[1], s);
+    }
+
+    private void buildWestFace(int x, int y, int z, Block block, FloatList v) {
+        float[] u = uvs(block, BlockTexture.Face.WEST);
+        float s = 0.9f;
+        vert(v, x, y+1, z,   u[0],u[1], s);
+        vert(v, x, y,   z,   u[0],u[3], s);
+        vert(v, x, y,   z+1, u[2],u[3], s);
+        vert(v, x, y+1, z+1, u[2],u[1], s);
+        vert(v, x, y+1, z,   u[0],u[1], s);
+        vert(v, x, y,   z+1, u[2],u[3], s);
+    }
+
+    private void buildEastFace(int x, int y, int z, Block block, FloatList v) {
+        float[] u = uvs(block, BlockTexture.Face.EAST);
+        float s = 0.9f;
+        vert(v, x+1, y+1, z+1, u[2],u[1], s);
+        vert(v, x+1, y,   z+1, u[2],u[3], s);
+        vert(v, x+1, y,   z,   u[0],u[3], s);
+        vert(v, x+1, y+1, z,   u[0],u[1], s);
+        vert(v, x+1, y+1, z+1, u[2],u[1], s);
+        vert(v, x+1, y,   z,   u[0],u[3], s);
+    }
+
+    // ── Public API ───────────────────────────────────────────────────────────
+
+    public synchronized void requestMesh(int chunkX, int chunkZ) {
+        Chunk chunk = chunkManager.getChunk(chunkX, chunkZ);
+        if (chunk == null || !chunk.isGenerated()) return;
+        meshingQueue.add(new ChunkManager.ChunkPos(chunkX, chunkZ));
+    }
+
+    public MeshUploadTask pollUploadTask()     { return uploadQueue.poll(); }
+    public boolean        hasUploadTasks()     { return !uploadQueue.isEmpty(); }
+    public int            getQueueSize()       { return meshingQueue.size(); }
+    public int            getUploadQueueSize() { return uploadQueue.size(); }
+
+    public void pause()  { paused.set(true);  }
+    public void resume() { paused.set(false); }
+
+    public void stop() {
+        running.set(false);
+        meshingQueue.clear();
+        MeshUploadTask task;
+        while ((task = uploadQueue.poll()) != null) {
+            task.releaseBuffer();
+        }
+    }
+
+    // ── Inner types ──────────────────────────────────────────────────────────
+
+    public static class MeshUploadTask {
+        public final int chunkX;
+        public final int chunkZ;
+        public final int vertexCount;
+        private FloatBuffer data;
+
+        MeshUploadTask(int cx, int cz, FloatBuffer data, int vertexCount) {
+            this.chunkX      = cx;
+            this.chunkZ      = cz;
+            this.data        = data;
+            this.vertexCount = vertexCount;
         }
 
-        // Add 2 triangles (6 indices) for the face
-        indices.add(vertexOffset);
-        indices.add(vertexOffset + 1);
-        indices.add(vertexOffset + 2);
-        indices.add(vertexOffset + 2);
-        indices.add(vertexOffset + 3);
-        indices.add(vertexOffset);
+        public FloatBuffer getData()    { return data; }
+        public void releaseBuffer()     { data = null; }
     }
 
-    /**
-     * Resolves a texture reference (either index or identifier) to an atlas index.
-     * Handles both pre-indexed textures and dynamic identifier-based textures.
-     */
-    private int resolveTextureIndex(BlockTexture blockTexture, BlockTexture.Face face) {
-        // Try to get the texture index directly (for index-based textures)
-        int index = blockTexture.getTextureIndexForFace(face);
-        if (index >= 0) {
-            return index;
+    // ── FloatList ─────────────────────────────────────────────────────────────
+
+    private static class FloatList {
+        private float[] arr;
+        private int     size = 0;
+
+        FloatList(int initialCapacity) { arr = new float[initialCapacity]; }
+
+        void add(float f) {
+            if (size == arr.length) {
+                float[] bigger = new float[arr.length * 2];
+                System.arraycopy(arr, 0, bigger, 0, size);
+                arr = bigger;
+            }
+            arr[size++] = f;
         }
 
-        // Otherwise, resolve the identifier through the atlas
-        Identifier textureId = blockTexture.getTextureIdForFace(face);
-        if (textureId != null) {
-            return textureAtlas.getTextureIndex(textureId);
-        }
-
-        // Fallback to index 0 if neither is available
-        LOGGER.warn("No texture found for face {}, using index 0", face);
-        return 0;
-    }
-
-    /**
-     * Gets vertex positions and UVs for a face.
-     * Vertices are in LOCAL CHUNK SPACE (0-16).
-     * Vertices are ordered COUNTER-CLOCKWISE when viewed from outside the block.
-     */
-    private float[][] getFaceVertices(Face face, int x, int y, int z) {
-        return switch (face) {
-            case TOP -> new float[][] {
-                    {x, y + 1, z, 0, 0},
-                    {x, y + 1, z + 1, 0, 1},
-                    {x + 1, y + 1, z + 1, 1, 1},
-                    {x + 1, y + 1, z, 1, 0}
-            };
-            case BOTTOM -> new float[][] {
-                    {x, y, z, 0, 0},
-                    {x + 1, y, z, 1, 0},
-                    {x + 1, y, z + 1, 1, 1},
-                    {x, y, z + 1, 0, 1}
-            };
-            case NORTH -> new float[][] {
-                    {x, y, z, 0, 0},
-                    {x, y + 1, z, 0, 1},
-                    {x + 1, y + 1, z, 1, 1},
-                    {x + 1, y, z, 1, 0}
-            };
-            case SOUTH -> new float[][] {
-                    {x, y, z + 1, 0, 0},
-                    {x + 1, y, z + 1, 1, 0},
-                    {x + 1, y + 1, z + 1, 1, 1},
-                    {x, y + 1, z + 1, 0, 1}
-            };
-            case WEST -> new float[][] {
-                    {x, y, z, 0, 0},
-                    {x, y, z + 1, 1, 0},
-                    {x, y + 1, z + 1, 1, 1},
-                    {x, y + 1, z, 0, 1}
-            };
-            case EAST -> new float[][] {
-                    {x + 1, y, z, 0, 0},
-                    {x + 1, y + 1, z, 0, 1},
-                    {x + 1, y + 1, z + 1, 1, 1},
-                    {x + 1, y, z + 1, 1, 0}
-            };
-        };
-    }
-
-    private enum Face {
-        TOP, BOTTOM, NORTH, SOUTH, WEST, EAST
-    }
-
-    /**
-     * Vertex data for chunk rendering.
-     */
-    public record ChunkVertex(
-            float x, float y, float z,  // Position (local chunk space)
-            float u, float v,            // Texture coordinates
-            float brightness             // Lighting (0-1)
-    ) {}
-
-    /**
-     * Complete chunk mesh with vertex and index data.
-     */
-    public record ChunkMesh(
-            ChunkVertex[] vertices,
-            int[] indices,
-            int chunkX,
-            int chunkY,
-            int chunkZ
-    ) {
-        public boolean isEmpty() {
-            return vertices.length == 0;
+        FloatBuffer toFlippedBuffer() {
+            FloatBuffer buf = BufferUtils.createFloatBuffer(size);
+            buf.put(arr, 0, size);
+            buf.flip();
+            return buf;
         }
     }
 }

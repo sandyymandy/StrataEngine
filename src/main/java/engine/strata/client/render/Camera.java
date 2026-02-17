@@ -25,8 +25,8 @@ public class Camera {
     private float speed;
     private float normalSpeed = 0.25f;
     private float slowSpeed = 0.05f;
-    private float fastSpeed = 0.5f;
-    private float fastSpeedPlus = 3f;
+    private float fastSpeed = 1f;
+    private float fastSpeedPlus = 5f;
     private boolean firstMouse = true;
     private double lastMouseX, lastMouseY;
     private float sensitivity = 0.15f;
@@ -42,7 +42,7 @@ public class Camera {
     public Camera(){
         this.fov = 90;
         this.Z_NEAR = 0.01f;
-        this.Z_FAR = 1000.0f;
+        this.Z_FAR = 10000.0f;
         this.frustum = new Frustum();
     }
 
@@ -114,7 +114,7 @@ public class Camera {
 
         speed = normalSpeed;
 
-        if(Keybinds.SLOW.isActive() && Keybinds.FAST.isActive()) {
+        if(Keybinds.FAST_PLUS.isActive()) {
             speed = fastSpeedPlus;
         }
         else if (Keybinds.SLOW.isActive()) {

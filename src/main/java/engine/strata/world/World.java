@@ -1,18 +1,16 @@
 package engine.strata.world;
 
-
 import engine.strata.client.StrataClient;
 import engine.strata.entity.Entity;
 import engine.strata.entity.entities.PlayerEntity;
 import engine.strata.physics.PhysicsManager;
 import engine.strata.world.block.Block;
-import engine.strata.world.chunk.Chunk;
-import engine.strata.world.chunk.ChunkManager;
+import engine.strata.world.chunk.*;
+import engine.strata.world.chunk.render.ChunkMeshBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -20,52 +18,85 @@ import java.util.concurrent.ConcurrentHashMap;
 public class World {
     private static final Logger LOGGER = LoggerFactory.getLogger("World");
 
-    // Use ConcurrentHashMap for thread-safe access
     private final ConcurrentHashMap<UUID, Entity> entities = new ConcurrentHashMap<>();
     private volatile List<Entity> entityList = new ArrayList<>();
 
-    // management
-    private final ChunkManager chunkManager;
     private final PhysicsManager physicsManager;
 
-    // World properties
+    // Chunk system
+    private final ChunkManager chunkManager;
+    private final ChunkGenerator chunkGenerator;
+    private final ChunkMeshBuilder chunkMeshBuilder;
+
+    // Generation and meshing threads
+    private Thread generationThread;
+    private Thread meshingThread;
+
     private final long seed;
     private final String worldName;
 
     // Player position tracking for chunk loading
-    private int lastPlayerChunkX = 0;
-    private int lastPlayerChunkY = 0;
-    private int lastPlayerChunkZ = 0;
-    private static final int CHUNK_LOAD_RADIUS = 32;
+    private int lastPlayerChunkX = Integer.MAX_VALUE;
+    private int lastPlayerChunkZ = Integer.MAX_VALUE;
+    private static final int CHUNK_UPDATE_THRESHOLD = 1; // Update chunks every N chunks moved
 
     public World(String worldName, long seed) {
         this.worldName = worldName;
         this.seed = seed;
-        this.chunkManager = new ChunkManager(seed);
         this.physicsManager = new PhysicsManager();
         this.physicsManager.init();
 
-        if(StrataClient.getInstance().getDebugInfo().showWorldDebug()) LOGGER.info("Creating new world '{}' with seed {}", worldName, seed);
+        // Initialize chunk system
+        this.chunkManager = new ChunkManager();
+        this.chunkGenerator = new ChunkGenerator(chunkManager, seed);
+
+        // Note: ChunkMesher needs texture atlas, which will be set later
+        this.chunkMeshBuilder = null; // Will be initialized when texture atlas is ready
+
+        if(StrataClient.getInstance().getDebugInfo().showWorldDebug())
+            LOGGER.info("Creating world '{}' with seed {}", worldName, seed);
     }
 
     public World() {
         this("World", System.currentTimeMillis());
     }
 
+    /**
+     * Initializes the chunk mesher with the texture atlas.
+     * Should be called after the texture atlas is built.
+     */
+    public ChunkMeshBuilder initializeChunkMesher(engine.strata.world.block.DynamicTextureAtlas atlas) {
+        return new ChunkMeshBuilder(chunkManager, atlas);
+    }
 
     /**
-     * Ticks all entities and updates chunks around players.
+     * Starts the chunk generation and meshing threads.
+     * Should be called after world initialization.
+     */
+    public void startChunkThreads(ChunkMeshBuilder mesher) {
+        // Start generation thread
+        generationThread = new Thread(chunkGenerator, "ChunkGen");
+        generationThread.start();
+
+        // Start meshing thread
+        meshingThread = new Thread(mesher, "ChunkMesh");
+        meshingThread.start();
+
+        LOGGER.info("Chunk generation and meshing threads started");
+    }
+
+    /**
+     * Ticks entities and manages chunk loading.
      */
     public void tick() {
         if (physicsManager != null) {
             physicsManager.update(1.0f / 60.0f);
         }
 
-        // Tick all entities
+        // Tick entities
         for (Entity entity : entityList) {
             entity.tick();
 
-            // Track player position for chunk loading
             if (entity instanceof PlayerEntity) {
                 updateChunksAroundPlayer(entity);
             }
@@ -73,57 +104,95 @@ public class World {
     }
 
     /**
-     * Updates chunks around a player entity.
-     * NOW ONLY LOADS ONE VERTICAL LAYER (Y=4, which is world Y=64-79)
+     * Updates chunks around player with movement threshold.
      */
     private void updateChunksAroundPlayer(Entity player) {
-        int playerChunkX = (int) Math.floor(player.getPosition().getX() / Chunk.SIZE);
-        int playerChunkZ = (int) Math.floor(player.getPosition().getZ() / Chunk.SIZE);
+        int playerChunkX = (int) Math.floor(player.getPosition().getX() / SubChunk.SIZE);
+        int playerChunkZ = (int) Math.floor(player.getPosition().getZ() / SubChunk.SIZE);
 
-        // SNAP TO Y=4 (world height 64-79)
-        int playerChunkY = 4;
+        // Check if player has moved far enough to update chunks
+        int dx = Math.abs(playerChunkX - lastPlayerChunkX);
+        int dz = Math.abs(playerChunkZ - lastPlayerChunkZ);
 
-        // Only update if player moved to a different chunk
-        if (playerChunkX != lastPlayerChunkX ||
-                playerChunkZ != lastPlayerChunkZ) {
-
-            // Load new chunks - ONLY HORIZONTAL, Y is fixed at 4
-            chunkManager.loadChunksAroundFlat(playerChunkX, playerChunkY, playerChunkZ, CHUNK_LOAD_RADIUS);
-
-            // Unload distant chunks
-            chunkManager.unloadChunksOutsideFlat(playerChunkX, playerChunkY, playerChunkZ, CHUNK_LOAD_RADIUS + 1);
-
+        if (dx >= CHUNK_UPDATE_THRESHOLD || dz >= CHUNK_UPDATE_THRESHOLD) {
             lastPlayerChunkX = playerChunkX;
-            lastPlayerChunkY = playerChunkY;
             lastPlayerChunkZ = playerChunkZ;
 
-            if(StrataClient.getInstance().getDebugInfo().showWorldDebug()) LOGGER.debug("Player moved to chunk [{}, {}, {}], loaded chunks: {}",
-                    playerChunkX, playerChunkY, playerChunkZ,
-                    chunkManager.getLoadedChunkCount());
+            // Request generation for chunks around player
+            List<ChunkManager.ChunkPos> chunksToLoad = chunkManager.getChunksToLoad(
+                    player.getPosition().getX(),
+                    player.getPosition().getZ()
+            );
+
+            chunkGenerator.requestGeneration(chunksToLoad);
+
+            // Unload distant chunks
+            List<ChunkManager.ChunkPos> chunksToUnload = chunkManager.getChunksToUnload(
+                    player.getPosition().getX(),
+                    player.getPosition().getZ()
+            );
+
+            for (ChunkManager.ChunkPos pos : chunksToUnload) {
+                unloadChunk(pos.x, pos.z);
+            }
+
+            if (StrataClient.getInstance().getDebugInfo().showWorldDebug() && chunksToLoad.size() > 0) {
+                LOGGER.debug("Player moved to chunk [{}, {}] - loading {} chunks, unloading {}",
+                        playerChunkX, playerChunkZ, chunksToLoad.size(), chunksToUnload.size());
+            }
         }
     }
 
     /**
-     * Pre-loads chunks in a radius around a position.
-     * NOW ONLY LOADS ONE VERTICAL LAYER (Y=4)
+     * Pre-loads chunks around spawn with priority loading.
      */
     public void preloadChunks(double x, double y, double z) {
-        int centerChunkX = (int) Math.floor(x / Chunk.SIZE);
-        int centerChunkZ = (int) Math.floor(z / Chunk.SIZE);
+        LOGGER.info("Pre-loading chunks around [{}, {}, {}]", x, y, z);
 
-        // SNAP TO Y=4 (world height 64-79)
-        int centerChunkY = 4;
+        List<ChunkManager.ChunkPos> chunks = chunkManager.getChunksToLoad(x, z);
+        chunkGenerator.requestGeneration(chunks);
 
-        chunkManager.loadChunksAroundFlat(centerChunkX, centerChunkY, centerChunkZ, CHUNK_LOAD_RADIUS);
+        LOGGER.info("Requested generation of {} spawn chunks", chunks.size());
     }
 
     /**
-     * Adds an entity to the world.
-     * Thread-safe for adding entities from any thread.
+     * Unloads a chunk and disposes of its mesh.
      */
+    private void unloadChunk(int chunkX, int chunkZ) {
+        chunkManager.removeChunk(chunkX, chunkZ);
+
+        // Note: Mesh disposal happens in ChunkRenderer
+        // We just need to remove the chunk data here
+
+        if (StrataClient.getInstance().getDebugInfo().showWorldDebug()) {
+            LOGGER.debug("Unloaded chunk [{}, {}]", chunkX, chunkZ);
+        }
+    }
+
+    /**
+     * Gets a block at world coordinates.
+     */
+    public short getBlock(int x, int y, int z) {
+        return chunkManager.getBlock(x, y, z);
+    }
+
+    /**
+     * Sets a block at world coordinates.
+     */
+    public void setBlock(int x, int y, int z, short blockId) {
+        chunkManager.setBlock(x, y, z, blockId);
+    }
+
+    /**
+     * Sets a block at world coordinates.
+     */
+    public void setBlock(int x, int y, int z, Block block) {
+        setBlock(x, y, z, block.getNumericId());
+    }
+
     public void addEntity(Entity entity) {
         if (entity == null) {
-            LOGGER.warn("Attempted to add null entity to world");
+            LOGGER.warn("Attempted to add null entity");
             return;
         }
 
@@ -131,147 +200,95 @@ public class World {
         entities.put(id, entity);
         updateEntityList();
 
-        if(StrataClient.getInstance().getDebugInfo().showWorldDebug()) LOGGER.debug("Added entity {} with ID {}", entity.getClass().getSimpleName(), id);
+        if(StrataClient.getInstance().getDebugInfo().showWorldDebug())
+            LOGGER.debug("Added entity {} with ID {}", entity.getClass().getSimpleName(), id);
     }
 
-    /**
-     * Removes an entity from the world.
-     */
     public void removeEntity(UUID id) {
         Entity removed = entities.remove(id);
         if (removed != null) {
             updateEntityList();
-            if(StrataClient.getInstance().getDebugInfo().showWorldDebug()) LOGGER.debug("Removed entity {} with ID {}", removed.getClass().getSimpleName(), id);
+            if(StrataClient.getInstance().getDebugInfo().showWorldDebug())
+                LOGGER.debug("Removed entity {} with ID {}", removed.getClass().getSimpleName(), id);
         }
     }
 
-    /**
-     * Removes an entity by reference (slower, requires iteration).
-     */
     public void removeEntity(Entity entity) {
         entities.entrySet().removeIf(entry -> entry.getValue() == entity);
         updateEntityList();
     }
 
-    /**
-     * Gets all entities in the world.
-     * Returns a snapshot that's safe to iterate.
-     */
     public List<Entity> getEntities() {
         return entityList;
     }
 
-    /**
-     * Gets the number of entities in the world.
-     */
     public int getEntityCount() {
         return entities.size();
     }
 
-    /**
-     * Updates the cached entity list after modifications.
-     */
     private void updateEntityList() {
         entityList = new ArrayList<>(entities.values());
-    }
-
-    /**
-     * Gets a block at world coordinates.
-     */
-    public Block getBlock(int x, int y, int z) {
-        return chunkManager.getBlock(x, y, z);
-    }
-
-    /**
-     * Sets a block at world coordinates.
-     */
-    public void setBlock(int x, int y, int z, Block block) {
-        chunkManager.setBlock(x, y, z, block);
-    }
-
-    /**
-     * Gets the light level at world coordinates (0-15).
-     */
-    public int getLightLevel(int x, int y, int z) {
-        return chunkManager.getLightLevel(x, y, z);
-    }
-
-    /**
-     * Gets a chunk at chunk coordinates.
-     */
-    public Chunk getChunk(int chunkX, int chunkY, int chunkZ) {
-        return chunkManager.getChunk(chunkX, chunkY, chunkZ);
-    }
-
-    /**
-     * Gets all loaded chunks.
-     */
-    public Collection<Chunk> getLoadedChunks() {
-        return chunkManager.getLoadedChunks();
-    }
-
-    /**
-     * Gets the chunk manager for direct access.
-     */
-    public ChunkManager getChunkManager() {
-        return chunkManager;
     }
 
     public PhysicsManager getPhysicsManager() {
         return physicsManager;
     }
 
-    // ==================== World Properties ====================
+    public ChunkManager getChunkManager() {
+        return chunkManager;
+    }
 
-    /**
-     * Gets the world seed.
-     */
+    public ChunkGenerator getChunkGenerator() {
+        return chunkGenerator;
+    }
+
     public long getSeed() {
         return seed;
     }
 
-    /**
-     * Gets the world name.
-     */
     public String getWorldName() {
         return worldName;
     }
 
-    // ==================== Cleanup ====================
-
-    /**
-     * Clears all entities from the world.
-     */
     public void clearEntities() {
         entities.clear();
         updateEntityList();
-        LOGGER.info("Cleared all entities from world");
+        LOGGER.info("Cleared all entities");
     }
 
-    /**
-     * Clears all chunks from the world.
-     */
     public void clearChunks() {
         chunkManager.clear();
-        LOGGER.info("Cleared all chunks from world");
+        LOGGER.info("Cleared all chunks");
     }
 
-    /**
-     * Clears everything (entities and chunks).
-     */
     public void clear() {
         clearEntities();
         clearChunks();
         LOGGER.info("Cleared world '{}'", worldName);
     }
 
-    /**
-     * Shuts down the world and all systems.
-     */
     public void shutdown() {
         LOGGER.info("Shutting down world '{}'...", worldName);
+
+        // Stop chunk threads
+        if (chunkGenerator != null) {
+            chunkGenerator.stop();
+        }
+
+        // Wait for threads to finish
+        try {
+            if (generationThread != null) {
+                generationThread.join(1000);
+            }
+            if (meshingThread != null) {
+                meshingThread.join(1000);
+            }
+        } catch (InterruptedException e) {
+            LOGGER.warn("Interrupted while waiting for chunk threads", e);
+        }
+
         clearEntities();
-        chunkManager.shutdown();
+        clearChunks();
 
         if (physicsManager != null) {
             physicsManager.shutdown();
@@ -280,25 +297,17 @@ public class World {
         LOGGER.info("World '{}' shut down successfully", worldName);
     }
 
-    // ==================== Debug Info ====================
-
     /**
      * Gets debug information about the world state.
      */
     public String getDebugInfo() {
         return String.format(
-                "World '%s' | Seed: %d | Entities: %d | Loaded Chunks: %d | %s",
+                "World: %s | Chunks: %d (%d regions) | Memory: %.2f MB | Queue: Gen=%d",
                 worldName,
-                seed,
-                entities.size(),
-                chunkManager.getLoadedChunkCount(),
-                chunkManager.getGenerationStats()
+                chunkManager.getTotalChunks(),
+                chunkManager.getTotalRegions(),
+                chunkManager.getTotalMemoryUsageMB(),
+                chunkGenerator.getQueueSize()
         );
-    }
-
-    @Override
-    public String toString() {
-        return String.format("World{name='%s', seed=%d, entities=%d, chunks=%d}",
-                worldName, seed, entities.size(), chunkManager.getLoadedChunkCount());
     }
 }

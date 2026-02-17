@@ -62,8 +62,9 @@ public class Blocks {
                     .hardness(0.6f)
                     .build(),
             new BlockTexture(
-                    Identifier.ofEngine("grass"),     // Top
-                    Identifier.ofEngine("dirt")           // Bottom
+                    Identifier.ofEngine("grass"),
+                    Identifier.ofEngine("grass_side"),
+                    Identifier.ofEngine("dirt")
             )
     );
 

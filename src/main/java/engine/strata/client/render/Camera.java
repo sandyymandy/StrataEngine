@@ -114,36 +114,36 @@ public class Camera {
 
         speed = normalSpeed;
 
-        if(Keybinds.FAST_PLUS.isActive()) {
+        if(Keybinds.FAST_PLUS.isPressedFrame()) {
             speed = fastSpeedPlus;
         }
-        else if (Keybinds.SLOW.isActive()) {
+        else if (Keybinds.SLOW.isPressedFrame()) {
             speed = slowSpeed;
         }
-        else if(Keybinds.FAST.isActive()) {
+        else if(Keybinds.FAST.isPressedFrame()) {
             speed = fastSpeed;
         }
 
-        if (Keybinds.RIGHT.isActive()) {
+        if (Keybinds.BACKWARDS.isPressedFrame()) {
             entity.getPosition().setX(entity.getPosition().getX() - sin * speed);
             entity.getPosition().setZ(entity.getPosition().getZ() + cos * speed);
         }
-        if (Keybinds.LEFT.isActive()) {
+        if (Keybinds.FORWARDS.isPressedFrame()) {
             entity.getPosition().setX(entity.getPosition().getX() + sin * speed);
             entity.getPosition().setZ(entity.getPosition().getZ() - cos * speed);
         }
-        if (Keybinds.FORWARDS.isActive()) {
+        if (Keybinds.RIGHT.isPressedFrame()) {
             entity.getPosition().setX(entity.getPosition().getX() + cos * speed);
             entity.getPosition().setZ(entity.getPosition().getZ() + sin * speed);
         }
-        if (Keybinds.BACKWARDS.isActive()) {
+        if (Keybinds.LEFT.isPressedFrame()) {
             entity.getPosition().setX(entity.getPosition().getX() - cos * speed);
             entity.getPosition().setZ(entity.getPosition().getZ() - sin * speed);
         }
-        if (Keybinds.UP.isActive()) {
+        if (Keybinds.UP.isPressedFrame()) {
             entity.getPosition().setY(entity.getPosition().getY() + speed);
         }
-        if (Keybinds.DOWN.isActive()) {
+        if (Keybinds.DOWN.isPressedFrame()) {
             entity.getPosition().setY(entity.getPosition().getY() - speed);
         }
     }
@@ -190,7 +190,7 @@ public class Camera {
         // View Matrix
         viewMatrix.identity()
                 .rotate((float) Math.toRadians(pitch), 1, 0, 0)
-                .rotate((float) Math.toRadians(yaw + 90), 0, 1, 0)
+                .rotate((float) Math.toRadians(yaw), 0, 1, 0)
                 .translate((float) -pos.x(), (float) -pos.y(), (float) -pos.z());
     }
 

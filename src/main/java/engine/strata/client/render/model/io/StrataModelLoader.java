@@ -21,7 +21,7 @@ public class StrataModelLoader {
      */
     public static StrataModel load(Identifier id) {
         try {
-            String json = ResourceManager.loadAsString(id, "models", "strmodel");
+            String json = ResourceManager.loadAsString(id, "models/entities", "strmodel");
             if (json == null || json.isEmpty()) {
                 LOGGER.error("Failed to load model: {}", id);
                 return createFallbackModel(id);
@@ -219,8 +219,8 @@ public class StrataModelLoader {
         LOGGER.warn("Creating fallback model for: {}", id);
 
         // 1. Define the geometric boundaries (Standard 1x1x1 block size is -8 to 8 in Blockbench)
-        Vector3f from = new Vector3f(-8, -8, -8);
-        Vector3f to = new Vector3f(8, 8, 8);
+        Vector3f from = new Vector3f(0, 0, 0);
+        Vector3f to = new Vector3f(1, 1, 1);
 
         // 2. Define faces with default UVs [u1, v1, u2, v2]
         Map<String, StrataMeshData.CuboidFace> faces = new HashMap<>();

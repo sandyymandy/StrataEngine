@@ -3,6 +3,8 @@ package engine.strata.client.frontend.window;
 import engine.strata.client.StrataClient;
 import engine.strata.client.input.InputSystem;
 import engine.strata.event.events.KeyEvent;
+import engine.strata.event.events.MouseEvent;
+import engine.strata.event.events.MouseScrollEvent;
 import org.lwjgl.glfw.GLFWVidMode;
 import org.lwjgl.opengl.GL;
 
@@ -56,9 +58,9 @@ public class Window {
             this.height = height;
         });
 
-        glfwSetKeyCallback(handle, ((window, key, scancode, action, mods) -> {
-            StrataClient.getInstance().getEventBus().post(new KeyEvent(key, action, mods));
-        }));
+        glfwSetKeyCallback(handle, (window, key, scancode, action, mods) -> StrataClient.getInstance().getEventBus().post(new KeyEvent(key, action, mods)));
+        glfwSetMouseButtonCallback(handle, (window, button, action, mods) -> StrataClient.getInstance().getEventBus().post(new MouseEvent(button, action, mods)));
+        glfwSetScrollCallback(handle, (window, xoffset, yoffset) -> StrataClient.getInstance().getEventBus().post(new MouseScrollEvent(xoffset, yoffset)));
 
         glfwSetWindowPos(handle, config.x, config.y);
         glfwMakeContextCurrent(handle);

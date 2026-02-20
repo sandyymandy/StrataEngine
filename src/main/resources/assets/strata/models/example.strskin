@@ -1,6 +1,0 @@
-{
-  "id": "strata:example",
-  "textures": {
-    "main": "strata:entity/main"
-  }
-}

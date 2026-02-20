@@ -3,14 +3,14 @@
   "format_version": 3,
   "textures": {
     "bia.png": {
-      "path": "strata:entity/bia",
+      "path": "strata:entities/bia",
       "width": 4096,
       "height": 4096,
       "translucent": true,
       "render_priority": 2
     },
     "steve.png": {
-      "path": "strata:entity/steve",
+      "path": "strata:entities/steve",
       "width": 64,
       "height": 64,
       "translucent": true,

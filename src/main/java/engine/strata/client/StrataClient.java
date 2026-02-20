@@ -61,9 +61,25 @@ public class StrataClient implements ClientModInitializer {
             GLFW.glfwPollEvents();
         }
 
-        backEnd.stop();
-        window.destroy();
-        GLFW.glfwTerminate();
+        backEnd.shutdown();
+
+        // Wait for the backend thread to finish before cleaning up
+        try {
+            logicThread.join(2000); // Wait up to 2 seconds
+            if (logicThread.isAlive()) {
+                LOGGER.warn("Backend thread did not stop gracefully, interrupting");
+                logicThread.interrupt();
+            }
+        } catch (InterruptedException e) {
+            LOGGER.warn("Interrupted while waiting for backend thread", e);
+            Thread.currentThread().interrupt();
+        }
+
+        // Now shut down the world (stops chunk generation/meshing threads)
+        frontEnd.shutDown();
+
+
+        LOGGER.info("Client shutdown complete");
     }
 
     public static StrataClient getInstance() { return instance; }

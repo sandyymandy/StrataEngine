@@ -28,8 +28,10 @@ public class ChunkGenerator implements Runnable {
 
     private final Queue<ChunkManager.ChunkPos> generationQueue = new ConcurrentLinkedQueue<>();
 
-    private final AtomicBoolean running = new AtomicBoolean(true);
+    private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean paused  = new AtomicBoolean(false);
+
+    private Thread thread;
 
     private int  chunksGenerated     = 0;
     private long totalGenerationTime = 0;
@@ -43,11 +45,21 @@ public class ChunkGenerator implements Runnable {
         LOGGER.info("ChunkGenerator initialized with seed: {}", seed);
     }
 
+    // ── Thread lifecycle ──────────────────────────────────────────────────────
+
+    /** Starts the generation thread. Call once after construction. */
+    public void start() {
+        if (running.compareAndSet(false, true)) {
+            thread = new Thread(this, "ChunkGen");
+            thread.setDaemon(true);
+            thread.start();
+        }
+    }
+
     // ── Thread loop ──────────────────────────────────────────────────────────
 
     @Override
     public void run() {
-        Thread.currentThread().setName("ChunkGen");
         LOGGER.info("Chunk generation thread started");
 
         while (running.get()) {
@@ -60,7 +72,8 @@ public class ChunkGenerator implements Runnable {
                 generateChunk(pos.x, pos.z);
 
             } catch (InterruptedException e) {
-                LOGGER.warn("Chunk generation interrupted", e);
+                // Restore interrupt status so the while-condition re-checks cleanly.
+                Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
                 LOGGER.error("Error during chunk generation", e);
@@ -151,12 +164,23 @@ public class ChunkGenerator implements Runnable {
     }
 
     /**
-     * Stops the generation thread and clears the queue.
-     * FIX: was missing the queue clear, leaving stale entries if restarted.
+     * Signals the generation thread to stop, interrupts its sleep, and waits
+     * for it to finish. Blocks for up to 3 seconds before giving up.
      */
     public void stop() {
         running.set(false);
         generationQueue.clear();
+        if (thread != null) {
+            thread.interrupt();
+            try {
+                thread.join(3000);
+                if (thread.isAlive()) {
+                    LOGGER.warn("ChunkGen thread did not stop within 3s");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     public void pause()  { paused.set(true);  }

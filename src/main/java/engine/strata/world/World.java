@@ -1,11 +1,18 @@
 package engine.strata.world;
 
 import engine.strata.client.StrataClient;
+import engine.strata.client.input.keybind.Keybinds;
 import engine.strata.entity.Entity;
 import engine.strata.entity.entities.PlayerEntity;
 import engine.strata.physics.PhysicsManager;
+import engine.strata.util.math.BlockPos;
+import engine.strata.util.math.Random;
+import engine.strata.util.math.Vec3d;
 import engine.strata.world.block.Block;
-import engine.strata.world.chunk.*;
+import engine.strata.world.block.DynamicTextureArray;
+import engine.strata.world.chunk.ChunkGenerator;
+import engine.strata.world.chunk.ChunkManager;
+import engine.strata.world.chunk.SubChunk;
 import engine.strata.world.chunk.render.ChunkMeshBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,15 +33,11 @@ public class World {
     // Chunk system
     private final ChunkManager chunkManager;
     private final ChunkGenerator chunkGenerator;
-    private final ChunkMeshBuilder chunkMeshBuilder;
-
-    // Generation and meshing threads
-    private Thread generationThread;
-    private Thread meshingThread;
+    private ChunkMeshBuilder chunkMeshBuilder; // initialized later with atlas
 
     private final long seed;
     private final String worldName;
-
+    private final Random random = new Random(System.currentTimeMillis());
     // Player position tracking for chunk loading
     private int lastPlayerChunkX = Integer.MAX_VALUE;
     private int lastPlayerChunkZ = Integer.MAX_VALUE;
@@ -49,8 +52,6 @@ public class World {
         // Initialize chunk system
         this.chunkManager = new ChunkManager();
         this.chunkGenerator = new ChunkGenerator(chunkManager, seed);
-
-        // Note: ChunkMesher needs texture atlas, which will be set later
         this.chunkMeshBuilder = null; // Will be initialized when texture atlas is ready
 
         if(StrataClient.getInstance().getDebugInfo().showWorldDebug())
@@ -62,25 +63,23 @@ public class World {
     }
 
     /**
-     * Initializes the chunk mesher with the texture atlas.
-     * Should be called after the texture atlas is built.
+     * Initializes the chunk mesher with the texture array.
+     * Should be called after the texture array is built.
      */
-    public ChunkMeshBuilder initializeChunkMesher(engine.strata.world.block.DynamicTextureAtlas atlas) {
-        return new ChunkMeshBuilder(chunkManager, atlas);
+    public ChunkMeshBuilder initializeChunkMesher(DynamicTextureArray array) {
+        return new ChunkMeshBuilder(chunkManager, array);
     }
 
     /**
      * Starts the chunk generation and meshing threads.
-     * Should be called after world initialization.
+     * Should be called after world initialization and after mesher is created.
      */
     public void startChunkThreads(ChunkMeshBuilder mesher) {
-        // Start generation thread
-        generationThread = new Thread(chunkGenerator, "ChunkGen");
-        generationThread.start();
+        this.chunkMeshBuilder = mesher;
 
-        // Start meshing thread
-        meshingThread = new Thread(mesher, "ChunkMesh");
-        meshingThread.start();
+        // Both components now own and start their own daemon threads
+        chunkGenerator.start();
+        chunkMeshBuilder.start();
 
         LOGGER.info("Chunk generation and meshing threads started");
     }
@@ -170,24 +169,46 @@ public class World {
     }
 
     /**
-     * Gets a block at world coordinates.
+     * Gets a block at a BlockPos.
      */
-    public short getBlock(int x, int y, int z) {
-        return chunkManager.getBlock(x, y, z);
+    public short getBlock(BlockPos pos) {
+        return chunkManager.getBlock(pos.getX(), pos.getY(), pos.getZ());
     }
 
     /**
-     * Sets a block at world coordinates.
+     * Sets a block at a BlockPos.
      */
-    public void setBlock(int x, int y, int z, short blockId) {
-        chunkManager.setBlock(x, y, z, blockId);
+    public void setBlock(BlockPos pos, short blockId) {
+        chunkManager.setBlock(pos.getX(), pos.getY(), pos.getZ(), blockId);
     }
 
     /**
-     * Sets a block at world coordinates.
+     * Sets a block at a BlockPos.
      */
-    public void setBlock(int x, int y, int z, Block block) {
-        setBlock(x, y, z, block.getNumericId());
+    public void setBlock(BlockPos pos, Block block) {
+        setBlock(pos, block.getNumericId());
+    }
+
+    /**
+     * Checks if a block position is air.
+     */
+    public boolean isAir(BlockPos pos) {
+        return getBlock(pos) == 0;
+    }
+
+    /**
+     * Gets the block at entity's feet position.
+     */
+    public short getBlockAtEntity(Entity entity) {
+        return getBlock(new BlockPos(entity.getPosition()));
+    }
+
+    /**
+     * Gets the block at entity's eye position.
+     */
+    public short getBlockAtEntityEye(Entity entity) {
+        Vec3d eyePos = entity.getPosition().add(0, entity.getEyeHeight(), 0);
+        return getBlock(new BlockPos(eyePos));
     }
 
     public void addEntity(Entity entity) {
@@ -275,16 +296,8 @@ public class World {
             chunkGenerator.stop();
         }
 
-        // Wait for threads to finish
-        try {
-            if (generationThread != null) {
-                generationThread.join(1000);
-            }
-            if (meshingThread != null) {
-                meshingThread.join(1000);
-            }
-        } catch (InterruptedException e) {
-            LOGGER.warn("Interrupted while waiting for chunk threads", e);
+        if (chunkMeshBuilder != null) {
+            chunkMeshBuilder.stop();
         }
 
         clearEntities();

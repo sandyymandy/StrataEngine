@@ -4,11 +4,21 @@ import engine.strata.client.input.InputState;
 import engine.strata.util.Identifier;
 
 public final class Keybind {
-
     public final Identifier id;
-    public final int key; // GLFW_KEY_*
-    private InputState state = InputState.IDLE;
-    private boolean isDown = false;
+    public final int key;
+
+    private boolean currentlyPressed = false;
+
+    // Frame-based tracking
+    private boolean wasPressedFrame = false;
+    private InputState frameState = InputState.IDLE;
+
+    // Tick-based tracking
+    private InputState tickState = InputState.IDLE;
+    private boolean wasPressedTick = false;
+    private boolean pressedSinceLastTick = false;
+    private boolean releasedSinceLastTick = false;
+
 
     public Keybind(Identifier id, int key) {
         this.id = id;
@@ -17,25 +27,59 @@ public final class Keybind {
     }
 
     public void setPressed(boolean pressed) {
-        this.isDown = pressed;
-    }
-
-    public void update() {
-        switch (state) {
-            case IDLE -> {
-                if (isDown) state = InputState.INITIATED;
-            }
-            case INITIATED -> state = isDown ? InputState.ACTIVE : InputState.CANCELED;
-            case ACTIVE -> {
-                if (!isDown) state = InputState.CANCELED;
-            }
-            case CANCELED -> state = isDown ? InputState.INITIATED : InputState.IDLE;
+        if (pressed && !this.currentlyPressed) {
+            this.pressedSinceLastTick = true;
+        } else if (!pressed && this.currentlyPressed) {
+            this.releasedSinceLastTick = true;
         }
+        this.currentlyPressed = pressed;
     }
 
-    // Getters
-    public boolean isIdle() { return state == InputState.IDLE; }
-    public boolean isInitiated() { return state == InputState.INITIATED; }
-    public boolean isActive() { return state == InputState.ACTIVE; }
-    public boolean isCanceled() { return state == InputState.CANCELED; }
+    /**
+     * PER FRAME: Keeps latency at 0ms for visuals.
+     */
+    public void update() {
+        if (currentlyPressed) {
+            frameState = wasPressedFrame ? InputState.HELD : InputState.JUST_PRESSED;
+        } else {
+            frameState = wasPressedFrame ? InputState.JUST_RELEASED : InputState.IDLE;
+        }
+        wasPressedFrame = currentlyPressed;
+    }
+
+    /**
+     * PER TICK: Guaranteed state for physics/logic.
+     */
+    public void tick() {
+        if (pressedSinceLastTick) {
+            tickState = InputState.JUST_PRESSED;
+            wasPressedTick = true;
+        } else if (releasedSinceLastTick) {
+            tickState = InputState.JUST_RELEASED;
+            wasPressedTick = false;
+        } else if (currentlyPressed) {
+            // FIX: If the hardware says it's down, it's HELD,
+            // regardless of whether an event fired this exact tick.
+            tickState = wasPressedTick ? InputState.HELD : InputState.JUST_PRESSED;
+            wasPressedTick = true;
+        } else {
+            tickState = wasPressedTick ? InputState.JUST_RELEASED : InputState.IDLE;
+            wasPressedTick = false;
+        }
+
+        // Reset buffers
+        pressedSinceLastTick = false;
+        releasedSinceLastTick = false;
+    }
+
+    // --- Frame Queries ---
+    public boolean isPressedFrame() { return frameState == InputState.JUST_PRESSED || frameState == InputState.HELD; }
+    public boolean isJustPressedFrame() { return frameState == InputState.JUST_PRESSED; }
+    public boolean isJustReleasedFrame() { return frameState == InputState.JUST_RELEASED; }
+
+    // --- Tick Queries ---
+    public boolean isPressedTick() { return tickState == InputState.JUST_PRESSED || tickState == InputState.HELD; }
+    public boolean isJustPressedTick() { return tickState == InputState.JUST_PRESSED; }
+    public boolean isJustReleasedTick() { return tickState == InputState.JUST_RELEASED; }
+    public boolean isHeldTick() { return tickState == InputState.HELD; }
 }

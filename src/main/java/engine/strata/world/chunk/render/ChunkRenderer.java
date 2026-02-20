@@ -7,14 +7,20 @@ import engine.strata.client.render.RenderLayers;
 import engine.strata.util.Identifier;
 import engine.strata.world.chunk.Chunk;
 import engine.strata.world.chunk.ChunkManager;
+import engine.strata.world.block.DynamicTextureArray;
 import engine.strata.world.chunk.Region;
+import engine.strata.world.block.TextureArrayManager;
 import engine.strata.world.chunk.SubChunk;
+import org.joml.Matrix4f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.joml.Matrix4f;
+import static org.lwjgl.opengl.GL11.glBindTexture;
+import static org.lwjgl.opengl.GL30.GL_TEXTURE_2D_ARRAY;
 
-import java.util.*;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ChunkRenderer {
@@ -27,8 +33,9 @@ public class ChunkRenderer {
     private final Map<Long, ChunkMesh> meshes = new ConcurrentHashMap<>();
 
     private final RenderLayer chunkLayer;
+    private final int textureArrayGlId;
 
-    private int renderDistance = 16;
+    private int renderDistance = 64;
 
     // Stats
     private int chunksRendered    = 0;
@@ -41,7 +48,12 @@ public class ChunkRenderer {
         this.chunkMeshBuilder = chunkMeshBuilder;
         this.camera       = camera;
         this.chunkLayer   = RenderLayers.getChunkLayer(atlasId);
-        LOGGER.info("ChunkRenderer initialized with atlas: {}", atlasId);
+
+        // Cache the GL id so we can rebind as GL_TEXTURE_2D_ARRAY after setup().
+        // RenderLayer.setup() calls glBindTexture(GL_TEXTURE_2D, id) which is the
+        // wrong target — we override it immediately before drawing.
+        DynamicTextureArray arr = TextureArrayManager.getInstance().getArray();
+        this.textureArrayGlId = (arr != null) ? arr.getTextureId() : 0;
     }
 
     // Main render loop
@@ -56,6 +68,14 @@ public class ChunkRenderer {
         pruneOrphanedMeshes();
 
         chunkLayer.setup(camera);
+
+        // RenderLayer.setup() bound our texture as GL_TEXTURE_2D (wrong target).
+        // Rebind it as GL_TEXTURE_2D_ARRAY so the sampler2DArray in the shader
+        // actually sees the data.
+        if (textureArrayGlId != 0) {
+            glBindTexture(GL_TEXTURE_2D_ARRAY, textureArrayGlId);
+        }
+
         renderVisibleChunks();
         chunkLayer.clean();
     }
@@ -65,6 +85,7 @@ public class ChunkRenderer {
     private void submitMeshingJobs() {
         for (Chunk chunk : chunkManager.getAllChunks()) {
             if (chunk.isGenerated() && chunk.needsRemesh()) {
+                chunk.setNeedsRemesh(false);
                 chunkMeshBuilder.requestMesh(chunk.getChunkX(), chunk.getChunkZ());
             }
         }
@@ -111,7 +132,6 @@ public class ChunkRenderer {
     }
 
     // Rendering
-
     private void renderVisibleChunks() {
         float camX = (float) camera.getPos().x;
         float camY = (float) camera.getPos().y;
@@ -168,7 +188,6 @@ public class ChunkRenderer {
     }
 
     // Disposal
-
     public void disposeMesh(int chunkX, int chunkZ) {
         long      key  = packChunkKey(chunkX, chunkZ);
         ChunkMesh mesh = meshes.remove(key);
@@ -182,7 +201,6 @@ public class ChunkRenderer {
     }
 
     // Stats / accessors
-
     public int getMeshCount()         { return meshes.size(); }
     public int getChunksRendered()    { return chunksRendered; }
     public int getChunksCulled()      { return chunksCulled; }

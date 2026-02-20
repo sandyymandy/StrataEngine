@@ -4,7 +4,7 @@ import engine.strata.client.StrataClient;
 import engine.strata.world.block.Block;
 import engine.strata.world.block.BlockTexture;
 import engine.strata.world.block.Blocks;
-import engine.strata.world.block.DynamicTextureAtlas;
+import engine.strata.world.block.DynamicTextureArray;
 import engine.strata.world.chunk.Chunk;
 import engine.strata.world.chunk.ChunkManager;
 import engine.strata.world.chunk.SubChunk;
@@ -21,51 +21,65 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Builds chunk meshes on a dedicated thread.
- *
- * Vertex layout per vertex: [ x, y, z,  u, v,  brightness ] — 6 floats.
- *
+ * <p>
+ * Vertex layout per vertex: [ x, y, z,  u, v,  layer,  brightness ] — 7 floats.
+ * <p>
  * This matches the chunk vertex shader exactly:
- *   layout(location = 0) in vec3 a_Position;     // x, y, z
- *   layout(location = 1) in vec2 a_TexCoord;     // u, v
- *   layout(location = 2) in float a_Brightness;  // single float, NOT vec4
+ *   layout(location = 0) in vec3  a_Position;    // x, y, z
+ *   layout(location = 1) in vec2  a_TexCoord;    // u, v  (always 0→1 per face)
+ *   layout(location = 2) in float a_Layer;       // texture array layer index
+ *   layout(location = 3) in float a_Brightness;  // simple directional lighting
+ * <p>
+ * Because we use a GL_TEXTURE_2D_ARRAY every texture occupies its own slice,
+ * so UVs are always the full [0,0]→[1,1] square — no atlas sub-division, no
+ * border padding, and no mipmap bleeding between tiles.
  *
- * The old layout wrote 9 floats (pos + uv + rgba) but the shader only
- * declared a_Brightness as a float at location 2 — causing the GPU to
- * misread the stride, garbling positions and UVs for every vertex after
- * the first, and producing wrong colours across the whole mesh.
+ * FIX: Removed "if (y < 0) return true;" to allow negative Y coordinates
  */
 public class ChunkMeshBuilder implements Runnable {
-    private static final Logger LOGGER = LoggerFactory.getLogger("ChunkMesh");
+    private static final Logger LOGGER = LoggerFactory.getLogger("ChunkMeshBuilder");
 
     private static final int INITIAL_FLOAT_CAPACITY = (4 * 1024 * 1024) / Float.BYTES;
 
-    // FIX: 6 floats per vertex to match shader layout (was 9).
-    // pos(3) + uv(2) + brightness(1) = 6
-    static final int FLOATS_PER_VERTEX = 6;
+    // 7 floats per vertex: pos(3) + uv(2) + layer(1) + brightness(1)
+    // Must stay in sync with ChunkMesh.FLOATS_PER_VERTEX.
+    static final int FLOATS_PER_VERTEX = 7;
 
     private final ChunkManager chunkManager;
-    private final DynamicTextureAtlas textureAtlas;
+    private final DynamicTextureArray textureArray;
 
     private final Set<ChunkManager.ChunkPos> meshingQueue = ConcurrentHashMap.newKeySet();
     private final Queue<MeshUploadTask>      uploadQueue  = new ConcurrentLinkedQueue<>();
 
-    private final AtomicBoolean running = new AtomicBoolean(true);
+    private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean paused  = new AtomicBoolean(false);
+
+    private Thread thread;
 
     private int  chunksMesshed   = 0;
     private long totalMeshTimeNs = 0;
 
-    public ChunkMeshBuilder(ChunkManager chunkManager, DynamicTextureAtlas textureAtlas) {
+    public ChunkMeshBuilder(ChunkManager chunkManager, DynamicTextureArray textureArray) {
         this.chunkManager = chunkManager;
-        this.textureAtlas = textureAtlas;
-        LOGGER.info("ChunkMesher initialized");
+        this.textureArray = textureArray;
+        LOGGER.info("ChunkMesher initialized (GL_TEXTURE_2D_ARRAY mode)");
+    }
+
+    // ── Thread lifecycle ──────────────────────────────────────────────────────
+
+    /** Starts the meshing thread. Call once after construction. */
+    public void start() {
+        if (running.compareAndSet(false, true)) {
+            thread = new Thread(this, "ChunkMesh");
+            thread.setDaemon(true);
+            thread.start();
+        }
     }
 
     // ── Thread loop ──────────────────────────────────────────────────────────
 
     @Override
     public void run() {
-        Thread.currentThread().setName("ChunkMesh");
         LOGGER.info("Chunk meshing thread started");
 
         while (running.get()) {
@@ -78,7 +92,8 @@ public class ChunkMeshBuilder implements Runnable {
                 meshChunk(pos.x, pos.z);
 
             } catch (InterruptedException e) {
-                LOGGER.warn("Chunk meshing interrupted", e);
+                // Restore interrupt status
+                Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
                 LOGGER.error("Error meshing chunk", e);
@@ -151,9 +166,11 @@ public class ChunkMeshBuilder implements Runnable {
         if (shouldRenderFace(chunk, x + 1, y, z)) buildEastFace  (wx, y, wz, block, v);
     }
 
+    /**
+     * FIX: Removed "if (y < 0) return true;" to allow rendering faces below Y=0
+     */
     private boolean shouldRenderFace(Chunk chunk, int x, int y, int z) {
-        if (y < 0) return true;
-
+        // Check if position is outside chunk bounds (XZ only, Y is infinite)
         if (x < 0 || x >= SubChunk.SIZE || z < 0 || z >= SubChunk.SIZE) {
             return shouldRenderFaceNeighbor(chunk, x, y, z);
         }
@@ -179,99 +196,96 @@ public class ChunkMeshBuilder implements Runnable {
         return !Blocks.getByNumericId(id).isOpaque();
     }
 
-    // ── UV helper ────────────────────────────────────────────────────────────
+    // ── Layer helper ─────────────────────────────────────────────────────────
 
-    /** Returns [minU, minV, maxU, maxV] for the given face (inner tile region, padding excluded). */
-    private float[] uvs(Block block, BlockTexture.Face face) {
+    /**
+     * Returns the texture array layer index for the given face of a block.
+     * UVs for every face are always [0,0]→[1,1] — no atlas calculation needed.
+     */
+    private int layer(Block block, BlockTexture.Face face) {
         BlockTexture.TextureReference ref = block.getTexture().getTextureForFace(face);
-        return ref.isIdentifier()
-                ? textureAtlas.getUVs(ref.getIdentifier())
-                : textureAtlas.getUVs(ref.getIndex());
+        return textureArray.getLayer(ref.getIdentifier());
     }
 
     // ── Vertex helper ────────────────────────────────────────────────────────
 
     /**
-     * Write one vertex: pos(3) + uv(2) + brightness(1) = 6 floats.
-     *
-     * FIX: was writing 9 floats [x,y,z, u,v, r,g,b,a] but the vertex shader
-     * declares a_Brightness as a single float at location 2, not a vec4.
-     * Writing 4 floats where 1 is expected shifts every subsequent vertex's
-     * data by +3 floats, so positions and UVs were read from the wrong bytes.
+     * Write one vertex: pos(3) + uv(2) + layer(1) + brightness(1) = 7 floats.
      */
     private void vert(FloatList v, float x, float y, float z,
-                      float u, float tv, float brightness) {
+                      float u, float tv, int layer, float brightness) {
         v.add(x); v.add(y); v.add(z);
         v.add(u); v.add(tv);
-        v.add(brightness);   // single float, matches "in float a_Brightness"
+        v.add((float) layer);
+        v.add(brightness);
     }
 
     // ── Face builders ────────────────────────────────────────────────────────
 
     private void buildTopFace(int x, int y, int z, Block block, FloatList v) {
-        float[] u = uvs(block, BlockTexture.Face.TOP);
+        int layer = layer(block, BlockTexture.Face.TOP);
         float s = 1.0f;
-        vert(v, x+1, y+1, z+1, u[2],u[3], s);
-        vert(v, x+1, y+1, z,   u[2],u[1], s);
-        vert(v, x,   y+1, z,   u[0],u[1], s);
-        vert(v, x,   y+1, z+1, u[0],u[3], s);
-        vert(v, x+1, y+1, z+1, u[2],u[3], s);
-        vert(v, x,   y+1, z,   u[0],u[1], s);
+        vert(v, x+1, y+1, z+1, 1,1, layer, s);
+        vert(v, x+1, y+1, z,   1,0, layer, s);
+        vert(v, x,   y+1, z,   0,0, layer, s);
+        vert(v, x,   y+1, z+1, 0,1, layer, s);
+        vert(v, x+1, y+1, z+1, 1,1, layer, s);
+        vert(v, x,   y+1, z,   0,0, layer, s);
     }
 
     private void buildBottomFace(int x, int y, int z, Block block, FloatList v) {
-        float[] u = uvs(block, BlockTexture.Face.BOTTOM);
+        int layer = layer(block, BlockTexture.Face.BOTTOM);
         float s = 0.7f;
-        vert(v, x,   y, z+1, u[0],u[3], s);
-        vert(v, x+1, y, z+1, u[2],u[3], s);
-        vert(v, x+1, y, z,   u[2],u[1], s);
-        vert(v, x,   y, z+1, u[0],u[3], s);
-        vert(v, x+1, y, z,   u[2],u[1], s);
-        vert(v, x,   y, z,   u[0],u[1], s);
+        vert(v, x+1, y, z,   1,0, layer, s);
+        vert(v, x+1, y, z+1, 1,1, layer, s);
+        vert(v, x,   y, z+1, 0,1, layer, s);
+        vert(v, x,   y, z,   0,0, layer, s);
+        vert(v, x+1, y, z,   1,0, layer, s);
+        vert(v, x,   y, z+1, 0,1, layer, s);
     }
 
     private void buildNorthFace(int x, int y, int z, Block block, FloatList v) {
-        float[] u = uvs(block, BlockTexture.Face.NORTH);
+        int layer = layer(block, BlockTexture.Face.NORTH);
         float s = 0.8f;
-        vert(v, x+1, y,   z, u[2],u[3], s);
-        vert(v, x,   y,   z, u[0],u[3], s);
-        vert(v, x,   y+1, z, u[0],u[1], s);
-        vert(v, x+1, y,   z, u[2],u[3], s);
-        vert(v, x,   y+1, z, u[0],u[1], s);
-        vert(v, x+1, y+1, z, u[2],u[1], s);
+        vert(v, x+1, y,   z, 1,1, layer, s);
+        vert(v, x,   y,   z, 0,1, layer, s);
+        vert(v, x,   y+1, z, 0,0, layer, s);
+        vert(v, x+1, y,   z, 1,1, layer, s);
+        vert(v, x,   y+1, z, 0,0, layer, s);
+        vert(v, x+1, y+1, z, 1,0, layer, s);
     }
 
     private void buildSouthFace(int x, int y, int z, Block block, FloatList v) {
-        float[] u = uvs(block, BlockTexture.Face.SOUTH);
+        int layer = layer(block, BlockTexture.Face.SOUTH);
         float s = 0.8f;
-        vert(v, x,   y,   z+1, u[0],u[3], s);
-        vert(v, x+1, y,   z+1, u[2],u[3], s);
-        vert(v, x+1, y+1, z+1, u[2],u[1], s);
-        vert(v, x,   y,   z+1, u[0],u[3], s);
-        vert(v, x+1, y+1, z+1, u[2],u[1], s);
-        vert(v, x,   y+1, z+1, u[0],u[1], s);
+        vert(v, x,   y,   z+1, 0,1, layer, s);
+        vert(v, x+1, y,   z+1, 1,1, layer, s);
+        vert(v, x+1, y+1, z+1, 1,0, layer, s);
+        vert(v, x,   y,   z+1, 0,1, layer, s);
+        vert(v, x+1, y+1, z+1, 1,0, layer, s);
+        vert(v, x,   y+1, z+1, 0,0, layer, s);
     }
 
     private void buildWestFace(int x, int y, int z, Block block, FloatList v) {
-        float[] u = uvs(block, BlockTexture.Face.WEST);
+        int layer = layer(block, BlockTexture.Face.WEST);
         float s = 0.9f;
-        vert(v, x, y+1, z,   u[0],u[1], s);
-        vert(v, x, y,   z,   u[0],u[3], s);
-        vert(v, x, y,   z+1, u[2],u[3], s);
-        vert(v, x, y+1, z+1, u[2],u[1], s);
-        vert(v, x, y+1, z,   u[0],u[1], s);
-        vert(v, x, y,   z+1, u[2],u[3], s);
+        vert(v, x, y+1, z,   0,0, layer, s);
+        vert(v, x, y,   z,   0,1, layer, s);
+        vert(v, x, y,   z+1, 1,1, layer, s);
+        vert(v, x, y+1, z+1, 1,0, layer, s);
+        vert(v, x, y+1, z,   0,0, layer, s);
+        vert(v, x, y,   z+1, 1,1, layer, s);
     }
 
     private void buildEastFace(int x, int y, int z, Block block, FloatList v) {
-        float[] u = uvs(block, BlockTexture.Face.EAST);
+        int layer = layer(block, BlockTexture.Face.EAST);
         float s = 0.9f;
-        vert(v, x+1, y+1, z+1, u[2],u[1], s);
-        vert(v, x+1, y,   z+1, u[2],u[3], s);
-        vert(v, x+1, y,   z,   u[0],u[3], s);
-        vert(v, x+1, y+1, z,   u[0],u[1], s);
-        vert(v, x+1, y+1, z+1, u[2],u[1], s);
-        vert(v, x+1, y,   z,   u[0],u[3], s);
+        vert(v, x+1, y+1, z+1, 1,0, layer, s);
+        vert(v, x+1, y,   z+1, 1,1, layer, s);
+        vert(v, x+1, y,   z,   0,1, layer, s);
+        vert(v, x+1, y+1, z,   0,0, layer, s);
+        vert(v, x+1, y+1, z+1, 1,0, layer, s);
+        vert(v, x+1, y,   z,   0,1, layer, s);
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -290,9 +304,25 @@ public class ChunkMeshBuilder implements Runnable {
     public void pause()  { paused.set(true);  }
     public void resume() { paused.set(false); }
 
+    /**
+     * Stops the meshing thread, interrupts its sleep, waits for it to finish,
+     * and releases all pending off-heap buffers.
+     */
     public void stop() {
         running.set(false);
         meshingQueue.clear();
+        if (thread != null) {
+            thread.interrupt();
+            try {
+                thread.join(3000);
+                if (thread.isAlive()) {
+                    LOGGER.warn("ChunkMesh thread did not stop within 3s");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        // Drain any pending upload tasks and release their off-heap buffers
         MeshUploadTask task;
         while ((task = uploadQueue.poll()) != null) {
             task.releaseBuffer();

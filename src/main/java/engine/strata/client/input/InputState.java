@@ -2,7 +2,7 @@ package engine.strata.client.input;
 
 public enum InputState {
     IDLE,
-    INITIATED,
-    ACTIVE,
-    CANCELED
+    JUST_PRESSED,
+    HELD,
+    JUST_RELEASED
 }

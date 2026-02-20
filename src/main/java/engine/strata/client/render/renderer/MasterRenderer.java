@@ -10,11 +10,14 @@ import engine.strata.client.render.renderer.entity.util.EntityRenderer;
 import engine.strata.client.render.snapshot.EntityRenderSnapshot;
 import engine.strata.debug.DisplayDebugInfo;
 import engine.strata.entity.Entity;
+import engine.strata.entity.util.EntityKey;
 import engine.strata.util.Identifier;
 import engine.strata.world.World;
+import engine.strata.entity.entities.PlayerEntity;
+import engine.strata.util.math.BlockRaycast;
 import engine.strata.world.block.Blocks;
-import engine.strata.world.block.DynamicTextureAtlas;
-import engine.strata.world.block.TextureAtlasManager;
+import engine.strata.world.block.DynamicTextureArray;
+import engine.strata.world.block.TextureArrayManager;
 import engine.strata.world.chunk.render.ChunkMeshBuilder;
 import engine.strata.world.chunk.render.ChunkRenderer;
 import org.slf4j.Logger;
@@ -45,6 +48,7 @@ public class MasterRenderer {
     private final MatrixStack poseStack;
     private final ModelRenderer modelRenderer;
     private final GuiRenderer guiRenderer;
+    private final BlockOutlineRenderer blockOutlineRenderer;
     private final EntityRenderDispatcher entityRenderDispatcher;
 
     // Chunk rendering
@@ -68,7 +72,7 @@ public class MasterRenderer {
     private int entitiesCulled = 0;
 
     // Debug flags
-    private DisplayDebugInfo debug;
+    private final DisplayDebugInfo debug;
 
     public MasterRenderer(StrataClient client, Camera camera, DisplayDebugInfo debug) {
         this.client = client;
@@ -78,6 +82,7 @@ public class MasterRenderer {
         this.guiRenderer = new GuiRenderer();
         this.entityRenderDispatcher = new EntityRenderDispatcher();
         this.debug = debug;
+        this.blockOutlineRenderer = new BlockOutlineRenderer();
 
         LOGGER.info("MasterRenderer created (ChunkRenderer will initialize when world is ready)");
     }
@@ -93,21 +98,16 @@ public class MasterRenderer {
 
         Identifier atlasId = Identifier.ofEngine("blocks/atlas");
 
-        // 1. Build the dynamic atlas (this generates the GL texture ID)
-        DynamicTextureAtlas atlas = TextureAtlasManager.getInstance()
-                .initializeAtlas(Blocks.getAllBlocks(), 32);
+        DynamicTextureArray atlas = TextureArrayManager.getInstance()
+                .initialize(Blocks.getAllBlocks(), 32);
 
-        // 2. Wrap the GL ID in a Texture object and register it
         Texture atlasTexture = new Texture(atlas.getTextureId());
         TextureManager.register(atlasId, atlasTexture);
 
-        // 3. Initialize chunk mesher with atlas
         ChunkMeshBuilder chunkMeshBuilder = world.initializeChunkMesher(atlas);
 
-        // 4. Start chunk threads
         world.startChunkThreads(chunkMeshBuilder);
 
-        // 5. Create chunk renderer
         this.chunkRenderer = new ChunkRenderer(
                 world.getChunkManager(),
                 chunkMeshBuilder,
@@ -183,9 +183,23 @@ public class MasterRenderer {
             }
         }
 
+        renderBlockOutline();
+
         renderEntities(snapshots, partialTicks, deltaTime);
 
         flushBuffers(); // Final flush
+    }
+
+    /**
+     * Renders the wireframe outline around the block the player is targeting.
+     */
+    private void renderBlockOutline() {
+        if (!(client.getPlayer() instanceof PlayerEntity player)) return;
+
+        BlockRaycast.RaycastResult target = player.getTargetedBlock();
+        if (!target.isHit()) return;
+
+        blockOutlineRenderer.render(target, camera.getProjectionMatrix(), camera.getViewMatrix());
     }
 
     /**
@@ -225,7 +239,16 @@ public class MasterRenderer {
 
         if(snapshots != null) {
             for (EntityRenderSnapshot snapshot : snapshots.values()) {
-                EntityRenderer<Entity> renderer = entityRenderDispatcher.getRenderer(snapshot.getEntityKey());
+                // Morph support: if this snapshot is for the player and they're morphed,
+                // use the morph target's renderer instead of the player's own renderer.
+                EntityKey<?> renderKey = snapshot.getEntityKey();
+                if (client.getPlayer() instanceof PlayerEntity playerEntity
+                        && snapshot.getEntityKey() == client.getPlayer().getKey()
+                        && playerEntity.isMorphed()) {
+                    renderKey = playerEntity.getMorphTarget();
+                }
+
+                EntityRenderer<Entity> renderer = entityRenderDispatcher.getRenderer(renderKey);
 
                 if (renderer == null) {
                     continue;

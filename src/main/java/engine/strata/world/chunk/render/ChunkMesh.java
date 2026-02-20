@@ -13,33 +13,32 @@ import static org.lwjgl.opengl.GL30.*;
 /**
  * Holds the VAO/VBO for one chunk's geometry and issues the draw call.
  *
- * Vertex layout — 6 floats per vertex, matching the chunk shader exactly:
+ * Vertex layout — 7 floats per vertex, matching the chunk shader exactly:
  *
- *   [ x, y, z,   u, v,   brightness ]
- *    ^-pos(3)-^  ^uv(2)^ ^--float--^
+ *   [ x, y, z,   u, v,   layer,   brightness ]
+ *    ^-pos(3)-^  ^uv(2)^ ^-f32-^  ^---f32---^
  *
- *   stride  = 6 * 4 = 24 bytes
- *   attrib 0 (a_Position)   : offset  0, size 3
- *   attrib 1 (a_TexCoord)   : offset 12, size 2
- *   attrib 2 (a_Brightness) : offset 20, size 1  ← was size 4 (vec4), now size 1 (float)
+ *   stride  = 7 * 4 = 28 bytes
+ *   attrib 0 (a_Position)   : offset  0, size 3  (vec3)
+ *   attrib 1 (a_TexCoord)   : offset 12, size 2  (vec2)
+ *   attrib 2 (a_Layer)      : offset 20, size 1  (float – texture array layer)
+ *   attrib 3 (a_Brightness) : offset 24, size 1  (float)
  *
- * FIX: The old code declared FLOATS_PER_VERTEX = 9 and bound attrib 2 with
- * size=4 (rgba), but the vertex shader has "in float a_Brightness" — a single
- * float.  That mismatch made the GPU read the stride wrong: every vertex after
- * the first had its position, UV, and brightness read from the wrong bytes,
- * producing scrambled geometry and wrong solid colours instead of textures.
+ * u/v are always [0,0]→[1,1] — the layer index selects the correct texture
+ * slice in the GL_TEXTURE_2D_ARRAY, so no atlas sub-division is needed.
  */
 public class ChunkMesh {
     private static final Logger LOGGER = LoggerFactory.getLogger("ChunkMesh");
 
-    // Shared with ChunkMesher for vertexCount calculation.
-    // FIX: 6 floats per vertex (was 9). Must match ChunkMesher.FLOATS_PER_VERTEX.
-    static final int FLOATS_PER_VERTEX = 6;  // pos(3) + uv(2) + brightness(1)
+    // 7 floats per vertex: pos(3) + uv(2) + layer(1) + brightness(1)
+    // Must stay in sync with ChunkMeshBuilder.FLOATS_PER_VERTEX.
+    static final int FLOATS_PER_VERTEX = 7;
 
-    private static final int STRIDE          = FLOATS_PER_VERTEX * Float.BYTES; // 24
-    private static final int OFFSET_POS      = 0;
-    private static final int OFFSET_UV       = 3 * Float.BYTES;  // 12
-    private static final int OFFSET_BRIGHTNESS = 5 * Float.BYTES; // 20
+    private static final int STRIDE             = FLOATS_PER_VERTEX * Float.BYTES; // 28
+    private static final int OFFSET_POS         = 0;
+    private static final int OFFSET_UV          = 3 * Float.BYTES;  // 12
+    private static final int OFFSET_LAYER       = 5 * Float.BYTES;  // 20
+    private static final int OFFSET_BRIGHTNESS  = 6 * Float.BYTES;  // 24
 
     private int vao         = 0;
     private int vbo         = 0;
@@ -84,14 +83,19 @@ public class ChunkMesh {
         glVertexAttribPointer(0, 3, GL_FLOAT, false, STRIDE, OFFSET_POS);
         glEnableVertexAttribArray(0);
 
-        // Attribute 1: texture UV (vec2)
+        // Attribute 1: texture UV (vec2) — always [0,0]→[1,1] per face
         glVertexAttribPointer(1, 2, GL_FLOAT, false, STRIDE, OFFSET_UV);
         glEnableVertexAttribArray(1);
 
-        // Attribute 2: brightness (float) — FIX: size 1, not 4.
-        // Shader: "layout(location = 2) in float a_Brightness"
-        glVertexAttribPointer(2, 1, GL_FLOAT, false, STRIDE, OFFSET_BRIGHTNESS);
+        // Attribute 2: texture array layer index (float)
+        // Shader: "layout(location = 2) in float a_Layer"
+        glVertexAttribPointer(2, 1, GL_FLOAT, false, STRIDE, OFFSET_LAYER);
         glEnableVertexAttribArray(2);
+
+        // Attribute 3: brightness (float)
+        // Shader: "layout(location = 3) in float a_Brightness"
+        glVertexAttribPointer(3, 1, GL_FLOAT, false, STRIDE, OFFSET_BRIGHTNESS);
+        glEnableVertexAttribArray(3);
 
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindVertexArray(0);

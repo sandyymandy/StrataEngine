@@ -118,4 +118,9 @@ public class Vec3f {
         return new Vec3f(quat.transform(toVector3d(), toVector3d()));
     }
 
+    @Override
+    public String toString() {
+        return String.format("X: %f, Y: %f, Z: %f", this.x, this.y, this.z);
+    }
+
 }

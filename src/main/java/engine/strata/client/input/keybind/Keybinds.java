@@ -1,5 +1,6 @@
 package engine.strata.client.input.keybind;
 
+import engine.strata.client.input.InputSystem;
 import engine.strata.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 
@@ -67,8 +68,28 @@ public class Keybinds {
             GLFW.GLFW_KEY_LEFT_ALT
     );
 
-    public static final Keybind PLACE = new Keybind(
-            Identifier.of("strata", "debug_chunks"),
+    public static final Keybind DEBUG_PLACE = new Keybind(
+            Identifier.of("strata", "place"),
             GLFW.GLFW_KEY_P
+    );
+
+    public static final Keybind PLACE = new Keybind(
+            Identifier.of("strata", "place"),
+            InputSystem.ofMouse(GLFW.GLFW_MOUSE_BUTTON_RIGHT)
+    );
+
+    public static final Keybind REMOVE = new Keybind(
+            Identifier.of("strata", "remove"),
+            InputSystem.ofMouse(GLFW.GLFW_MOUSE_BUTTON_LEFT)
+    );
+
+    public static final Keybind MORPH_NEXT = new Keybind(
+            Identifier.of("strata", "morph"),
+            GLFW.GLFW_KEY_N
+    );
+
+    public static final Keybind MORPH_PREV = new Keybind(
+            Identifier.of("strata", "morphp"),
+            GLFW.GLFW_KEY_B
     );
 }

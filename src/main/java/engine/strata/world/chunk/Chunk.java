@@ -1,6 +1,5 @@
 package engine.strata.world.chunk;
 
-import engine.strata.world.block.Block;
 import engine.strata.world.block.Blocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,12 +9,14 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Represents a vertical column of subchunks.
  * Dynamically allocates subchunks only when needed (non-air blocks exist).
- *
+ * <p>
  * Architecture:
  * - Chunks are positioned in world space by (chunkX, chunkZ)
  * - Each chunk contains a dynamic number of 32^3 subchunks along the Y axis
  * - SubChunks are only allocated when they contain non-air blocks
- * - This allows for infinite vertical height without memory waste
+ * - This allows for infinite vertical height (positive AND negative) without memory waste
+ * <p>
+ * FIX: Removed all Y < 0 bounds checks to allow negative coordinates
  */
 public class Chunk {
     private static final Logger LOGGER = LoggerFactory.getLogger("Chunk");
@@ -26,6 +27,7 @@ public class Chunk {
 
     // SubChunks indexed by Y level (each represents 32 blocks in height)
     // Using ConcurrentHashMap for thread-safe dynamic allocation
+    // Can store NEGATIVE indices for underground subchunks
     private final ConcurrentHashMap<Integer, SubChunk> subChunks = new ConcurrentHashMap<>();
 
     // Mesh generation flag
@@ -58,17 +60,17 @@ public class Chunk {
     /**
      * Gets a block at local coordinates within this chunk.
      * @param x Local X (0-31)
-     * @param y World Y (absolute)
+     * @param y World Y (absolute, can be negative)
      * @param z Local Z (0-31)
      */
     public short getBlock(int x, int y, int z) {
-        // Bounds check
-        if (x < 0 || x >= SubChunk.SIZE || z < 0 || z >= SubChunk.SIZE || y < 0) {
+        // Bounds check - removed y < 0 check to allow negative Y
+        if (x < 0 || x >= SubChunk.SIZE || z < 0 || z >= SubChunk.SIZE) {
             return Blocks.AIR.getNumericId();
         }
 
-        // Calculate which subchunk this belongs to
-        int subChunkY = y / SubChunk.SIZE;
+        // Calculate which subchunk this belongs to (Math.floorDiv handles negatives correctly)
+        int subChunkY = Math.floorDiv(y, SubChunk.SIZE);
         SubChunk subChunk = subChunks.get(subChunkY);
 
         // If no subchunk exists, it's air
@@ -77,7 +79,8 @@ public class Chunk {
         }
 
         // Get block from subchunk (convert Y to local subchunk coordinate)
-        int localY = y % SubChunk.SIZE;
+        // Use Math.floorMod to handle negative Y correctly
+        int localY = Math.floorMod(y, SubChunk.SIZE);
         return subChunk.getBlock(x, localY, z);
     }
 
@@ -85,14 +88,14 @@ public class Chunk {
      * Sets a block at local coordinates within this chunk.
      */
     public void setBlock(int x, int y, int z, short blockId) {
-        // Bounds check
-        if (x < 0 || x >= SubChunk.SIZE || z < 0 || z >= SubChunk.SIZE || y < 0) {
+        // Bounds check - removed y < 0 check to allow negative Y
+        if (x < 0 || x >= SubChunk.SIZE || z < 0 || z >= SubChunk.SIZE) {
             return;
         }
 
-        // Calculate which subchunk this belongs to
-        int subChunkY = y / SubChunk.SIZE;
-        int localY = y % SubChunk.SIZE;
+        // Calculate which subchunk this belongs to (Math.floorDiv handles negatives correctly)
+        int subChunkY = Math.floorDiv(y, SubChunk.SIZE);
+        int localY = Math.floorMod(y, SubChunk.SIZE);
 
         // If setting air and no subchunk exists, nothing to do
         if (blockId == Blocks.AIR.getNumericId() && !subChunks.containsKey(subChunkY)) {
@@ -134,14 +137,14 @@ public class Chunk {
      * Gets block state at local coordinates.
      */
     public int getBlockState(int x, int y, int z) {
-        int subChunkY = y / SubChunk.SIZE;
+        int subChunkY = Math.floorDiv(y, SubChunk.SIZE);
         SubChunk subChunk = subChunks.get(subChunkY);
 
         if (subChunk == null) {
             return 0;
         }
 
-        int localY = y % SubChunk.SIZE;
+        int localY = Math.floorMod(y, SubChunk.SIZE);
         return subChunk.getBlockState(x, localY, z);
     }
 
@@ -149,13 +152,13 @@ public class Chunk {
      * Sets block state at local coordinates.
      */
     public void setBlockState(int x, int y, int z, int state) {
-        int subChunkY = y / SubChunk.SIZE;
+        int subChunkY = Math.floorDiv(y, SubChunk.SIZE);
 
         // Get or create subchunk (states require a subchunk to exist)
         SubChunk subChunk = subChunks.computeIfAbsent(subChunkY,
                 key -> new SubChunk(chunkX, key, chunkZ));
 
-        int localY = y % SubChunk.SIZE;
+        int localY = Math.floorMod(y, SubChunk.SIZE);
         subChunk.setBlockState(x, localY, z, state);
     }
 
@@ -275,13 +278,13 @@ public class Chunk {
     }
 
     public Chunk getNeighbor(ChunkDirection direction) {
-        switch (direction) {
-            case NORTH: return northNeighbor;
-            case SOUTH: return southNeighbor;
-            case EAST: return eastNeighbor;
-            case WEST: return westNeighbor;
-            default: return null;
-        }
+        return switch (direction) {
+            case NORTH -> northNeighbor;
+            case SOUTH -> southNeighbor;
+            case EAST -> eastNeighbor;
+            case WEST -> westNeighbor;
+            default -> null;
+        };
     }
 
     public boolean hasAllNeighbors() {

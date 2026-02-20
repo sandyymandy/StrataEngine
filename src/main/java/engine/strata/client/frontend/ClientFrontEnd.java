@@ -13,11 +13,12 @@ import engine.strata.client.render.snapshot.EntityRenderSnapshot;
 import engine.strata.debug.DisplayDebugInfo;
 import engine.strata.registry.registries.EntityRegistry;
 import engine.strata.util.Identifier;
-import engine.strata.world.block.DynamicTextureAtlas;
+import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
+
 
 public class ClientFrontEnd {
     public static final Logger LOGGER = LoggerFactory.getLogger("ClientFrontEnd");
@@ -26,6 +27,10 @@ public class ClientFrontEnd {
     private final Camera camera;
     private final DisplayDebugInfo debugInfo = new DisplayDebugInfo(false, false, false, false, false, false);
 
+    private FramerateCap framerateCap = FramerateCap.UNCAPPED;
+    private long lastFrameTime = System.nanoTime();
+    private long targetFrameTimeNanos = 0;
+
     public ClientFrontEnd(Window window, StrataClient client) {
         this.window = window;
         this.camera = new Camera();
@@ -33,10 +38,92 @@ public class ClientFrontEnd {
         RenderSystem.initRenderThread();
         initHelios();
         init();
+
+        setFramerateCap(FramerateCap.FPS_240);
     }
 
+
     public void render(Map<Integer, EntityRenderSnapshot> states, float partialTicks, float deltaTime) {
+        limitFramerate();
+
         this.masterRenderer.render(states, partialTicks, deltaTime);
+    }
+
+
+    private void limitFramerate() {
+        if (framerateCap == FramerateCap.UNCAPPED || framerateCap == FramerateCap.VSYNC) {
+            return; // No limiting needed
+        }
+
+        long currentTime = System.nanoTime();
+        long elapsedTime = currentTime - lastFrameTime;
+
+        // If we rendered too fast, sleep for the remaining time
+        if (elapsedTime < targetFrameTimeNanos) {
+            long sleepTime = targetFrameTimeNanos - elapsedTime;
+
+            // Convert to milliseconds and nanoseconds for Thread.sleep
+            long sleepMillis = sleepTime / 1_000_000;
+            int sleepNanos = (int)(sleepTime % 1_000_000);
+
+            try {
+                if (sleepMillis > 0 || sleepNanos > 0) {
+                    Thread.sleep(sleepMillis, sleepNanos);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        lastFrameTime = System.nanoTime();
+    }
+
+    /**
+     * Sets the framerate cap.
+     * @param cap The desired framerate cap
+     */
+    public void setFramerateCap(FramerateCap cap) {
+        this.framerateCap = cap;
+
+        if (cap == FramerateCap.VSYNC) {
+            // Enable VSync through GLFW
+            GLFW.glfwSwapInterval(1);
+            targetFrameTimeNanos = 0;
+            LOGGER.info("Framerate cap set to: VSync");
+        } else if (cap == FramerateCap.UNCAPPED) {
+            // Disable VSync
+            GLFW.glfwSwapInterval(0);
+            targetFrameTimeNanos = 0;
+            LOGGER.info("Framerate cap set to: Uncapped");
+        } else {
+            // Disable VSync for manual limiting
+            GLFW.glfwSwapInterval(0);
+            // Calculate target frame time in nanoseconds
+            targetFrameTimeNanos = 1_000_000_000L / cap.getFps();
+            LOGGER.info("Framerate cap set to: {} FPS ({}ms per frame)",
+                    cap.getFps(),
+                    String.format("%.2f", targetFrameTimeNanos / 1_000_000.0));
+        }
+
+        lastFrameTime = System.nanoTime();
+    }
+
+    /**
+     * Gets the current framerate cap setting.
+     */
+    public FramerateCap getFramerateCap() {
+        return framerateCap;
+    }
+
+    /**
+     * Cycles to the next framerate cap option.
+     * Useful for keybind toggling.
+     */
+    public void cycleFramerateCap() {
+        FramerateCap[] values = FramerateCap.values();
+        int currentIndex = framerateCap.ordinal();
+        int nextIndex = (currentIndex + 1) % values.length;
+        setFramerateCap(values[nextIndex]);
     }
 
     private void init() {
@@ -60,7 +147,18 @@ public class ClientFrontEnd {
                 Identifier.ofEngine("included/chunk_fragment")
         );
 
+        ShaderManager.register(Identifier.ofEngine("outline"),
+                Identifier.ofEngine("included/outline_vertex"),
+                Identifier.ofEngine("included/outline_fragment")
+        );
+
         LOGGER.info("Helios initialization complete");
+    }
+
+    public void shutDown() {
+        this.masterRenderer.cleanup();
+        window.destroy();
+        GLFW.glfwTerminate();
     }
 
     public Camera getCamera() {
@@ -75,4 +173,39 @@ public class ClientFrontEnd {
         return masterRenderer;
     }
 
+    /**
+     * Enum defining available framerate cap options.
+     */
+    public enum FramerateCap {
+        UNCAPPED(0, "Uncapped"),
+        FPS_30(30, "30 FPS"),
+        FPS_60(60, "60 FPS"),
+        FPS_120(120, "120 FPS"),
+        FPS_144(144, "144 FPS"),
+        FPS_240(240, "240 FPS"),
+        VSYNC(0, "VSync");
+
+        private final int fps;
+        private final String displayName;
+
+        FramerateCap(int fps, String displayName) {
+            this.fps = fps;
+            this.displayName = displayName;
+        }
+
+        public int getFps() {
+            return fps;
+        }
+
+        public String getDisplayName() {
+            return displayName;
+        }
+
+        @Override
+        public String toString() {
+            return displayName;
+        }
+    }
+
+    // TODO: Fixed the bug where even though this system supports infinite height limit the chunk rendering stops at a certan distance
 }

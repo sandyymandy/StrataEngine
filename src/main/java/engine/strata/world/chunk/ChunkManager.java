@@ -8,11 +8,13 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-
+/**
+ * FIX: Updated getBlock/setBlock to use Math.floorDiv for proper negative Y handling
+ */
 public class ChunkManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("ChunkManager");
 
-    private int renderDistance = 16; // ← was 8
+    private int renderDistance = 32;
 
     private final ConcurrentHashMap<Long, Region> regions    = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, Chunk>  chunkCache = new ConcurrentHashMap<>();
@@ -48,7 +50,7 @@ public class ChunkManager {
         long regionKey = packRegionKey(regionX, regionY, regionZ);
         Region region = regions.computeIfAbsent(regionKey, k -> {
             Region r = new Region(regionX, regionY, regionZ);
-            totalRegions.incrementAndGet(); // FIX: was totalRegions++, unsafe
+            totalRegions.incrementAndGet();
             if (StrataClient.getInstance().getDebugInfo().showWorldDebug()) {
                 LOGGER.debug("Created new region: {}", r);
             }
@@ -65,8 +67,8 @@ public class ChunkManager {
         Chunk chunk = chunkCache.remove(key);
         if (chunk == null) return;
 
-        // FIX: sever neighbor back-references FIRST so neighboring chunks
-        //      don't hold a dangling pointer to this chunk after clear().
+        // Sever neighbor back-references FIRST so neighboring chunks
+        // don't hold a dangling pointer to this chunk after clear().
         breakNeighborReferences(chunk);
 
         int regionX   = Math.floorDiv(chunkX, Region.SIZE);
@@ -78,12 +80,12 @@ public class ChunkManager {
             region.removeChunk(chunkX, chunkZ);
             if (region.isEmpty()) {
                 regions.remove(regionKey);
-                totalRegions.decrementAndGet(); // FIX: was totalRegions--
+                totalRegions.decrementAndGet();
             }
         }
 
         chunk.clear();
-        totalChunks.decrementAndGet(); // FIX: was totalChunks--
+        totalChunks.decrementAndGet();
     }
 
     /**
@@ -109,6 +111,11 @@ public class ChunkManager {
 
     // ── Block access ──────────────────────────────────────────────────────────
 
+    /**
+     * FIX: Use Math.floorDiv instead of regular division to handle negative
+     * coordinates correctly. Regular division rounds toward zero, but chunk
+     * coordinates should round toward negative infinity.
+     */
     public short getBlock(int worldX, int worldY, int worldZ) {
         int   chunkX = Math.floorDiv(worldX, SubChunk.SIZE);
         int   chunkZ = Math.floorDiv(worldZ, SubChunk.SIZE);
@@ -116,6 +123,10 @@ public class ChunkManager {
         return chunk == null ? 0 : chunk.getBlockWorld(worldX, worldY, worldZ);
     }
 
+    /**
+     * FIX: Use Math.floorDiv instead of regular division to handle negative
+     * coordinates correctly.
+     */
     public void setBlock(int worldX, int worldY, int worldZ, short blockId) {
         int   chunkX = Math.floorDiv(worldX, SubChunk.SIZE);
         int   chunkZ = Math.floorDiv(worldZ, SubChunk.SIZE);
@@ -144,7 +155,6 @@ public class ChunkManager {
         List<ChunkPos> toUnload = new ArrayList<>();
         int cx = (int) Math.floor(centerX / SubChunk.SIZE);
         int cz = (int) Math.floor(centerZ / SubChunk.SIZE);
-        // FIX: unload buffer raised from +2 → +4 to match the larger render distance
         int unloadDist = renderDistance + 4;
 
         for (Chunk chunk : chunkCache.values()) {

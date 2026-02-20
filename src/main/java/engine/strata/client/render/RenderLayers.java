@@ -1,8 +1,8 @@
 package engine.strata.client.render;
 
-import engine.helios.RenderLayer;
-import engine.helios.ShaderManager;
-import engine.helios.ShaderStack;
+import engine.helios.rendering.RenderLayer;
+import engine.helios.rendering.shader.ShaderManager;
+import engine.helios.rendering.shader.ShaderStack;
 import engine.strata.util.Identifier;
 
 import java.util.HashMap;

@@ -1,7 +1,7 @@
 package engine.strata.client.frontend;
 
-import engine.helios.RenderSystem;
-import engine.helios.ShaderManager;
+import engine.helios.rendering.RenderSystem;
+import engine.helios.rendering.shader.ShaderManager;
 import engine.strata.client.StrataClient;
 import engine.strata.client.frontend.window.Window;
 import engine.strata.client.render.Camera;

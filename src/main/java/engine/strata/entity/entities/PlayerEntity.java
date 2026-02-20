@@ -1,25 +1,19 @@
 package engine.strata.entity.entities;
 
-import engine.strata.client.StrataClient;
 import engine.strata.client.input.keybind.Keybinds;
 import engine.strata.entity.Entity;
-import engine.strata.entity.PhysicsEntity;
 import engine.strata.entity.util.EntityKey;
-import engine.strata.registry.registries.EntityRegistry;
 import engine.strata.util.math.BlockPos;
 import engine.strata.util.math.BlockRaycast;
-import engine.strata.util.math.Vec3d;
 import engine.strata.world.World;
 
-import java.util.ArrayList;
 import java.util.List;
 
-public class PlayerEntity extends PhysicsEntity {
+public class PlayerEntity extends Entity {
 
-    // ── Block interaction ─────────────────────────────────────────────────────
 
     /** Max distance (in blocks) at which the player can interact with blocks. */
-    private static final double REACH = 7.0;
+    private static final float REACH = 10;
 
     /**
      * The block the player is currently looking at.

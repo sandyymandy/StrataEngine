@@ -1,4 +1,4 @@
-package engine.helios;
+package engine.helios.rendering.shader;
 
 import engine.strata.util.Identifier;
 import java.util.HashMap;

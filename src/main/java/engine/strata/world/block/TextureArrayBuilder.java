@@ -1,5 +1,6 @@
 package engine.strata.world.block;
 
+import engine.helios.rendering.texture.TextureArray;
 import engine.strata.core.io.ResourceManager;
 import engine.strata.util.Identifier;
 import org.lwjgl.BufferUtils;
@@ -19,22 +20,17 @@ import static org.lwjgl.opengl.GL12.*;
 import static org.lwjgl.opengl.GL30.*;
 
 /**
- * Builds a GL_TEXTURE_2D_ARRAY from the texture identifiers declared by
- * registered blocks.
+ * Builds a GL_TEXTURE_2D_ARRAY from texture identifiers using Helios TextureArray.
  *
- * Each unique texture becomes one layer of the array.  All layers share the
- * same width × height (tileSize × tileSize).  Because layers are independent
+ * Each unique texture becomes one layer of the array. All layers share the
+ * same width × height (tileSize × tileSize). Because layers are independent
  * slices there is zero bleed between textures — no border padding is needed
  * and mipmaps are generated per-layer automatically by the driver.
- *
- * Texture resolution:
- *   "strata:stone"   →  /assets/strata/textures/blocks/stone.png
- *   "mymod:bouncy"   →  /assets/mymod/textures/blocks/bouncy.png
  */
 public class TextureArrayBuilder {
     private static final Logger LOGGER = LoggerFactory.getLogger("TextureArrayBuilder");
 
-    private static final int    DEFAULT_TILE_SIZE    = 16;
+    private static final int DEFAULT_TILE_SIZE = 16;
     private static final String MISSING_TEXTURE_PATH = "missing";
 
     // ── Public entry points ───────────────────────────────────────────────────
@@ -84,10 +80,10 @@ public class TextureArrayBuilder {
 
         allData.flip();
 
-        int glId = uploadToGPU(allData, tileSize, layerCount);
+        TextureArray glTextureArray = uploadToGPU(allData, tileSize, layerCount);
 
-        LOGGER.info("Texture array uploaded: {} layers, GL id={}", layerCount, glId);
-        return new DynamicTextureArray(glId, tileSize, layerCount, layerMap);
+        LOGGER.info("Texture array uploaded: {} layers, GL id={}", layerCount, glTextureArray.getId());
+        return new DynamicTextureArray(glTextureArray, tileSize, layerMap);
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────
@@ -111,52 +107,49 @@ public class TextureArrayBuilder {
     }
 
     /**
-     * Writes a tileSize×tileSize RGBA image into the provided ByteBuffer
-     * (which must have enough remaining capacity).
+     * Writes a tileSize×tileSize RGBA image into the provided ByteBuffer.
      */
     private static void appendLayerToBuffer(BufferedImage img, int tileSize, ByteBuffer buf) {
         int[] pixels = new int[tileSize * tileSize];
         img.getRGB(0, 0, tileSize, tileSize, pixels, 0, tileSize);
         for (int pixel : pixels) {
             buf.put((byte) ((pixel >> 16) & 0xFF)); // R
-            buf.put((byte) ((pixel >>  8) & 0xFF)); // G
-            buf.put((byte) ( pixel        & 0xFF)); // B
+            buf.put((byte) ((pixel >> 8) & 0xFF));  // G
+            buf.put((byte) (pixel & 0xFF));         // B
             buf.put((byte) ((pixel >> 24) & 0xFF)); // A
         }
     }
 
     /**
-     * Uploads the flat buffer of layer data to a GL_TEXTURE_2D_ARRAY and
-     * configures filtering suitable for pixel-art block textures.
+     * Uploads the flat buffer of layer data to a GL_TEXTURE_2D_ARRAY through Helios
+     * and configures filtering suitable for pixel-art block textures.
      */
-    private static int uploadToGPU(ByteBuffer data, int tileSize, int layerCount) {
+    private static TextureArray uploadToGPU(ByteBuffer data, int tileSize, int layerCount) {
         int id = glGenTextures();
         glBindTexture(GL_TEXTURE_2D_ARRAY, id);
 
-        // Allocate storage for all mip levels and all layers in one call.
-        // glTexImage3D with depth = layerCount defines the array.
+        // Allocate storage for all layers
         glTexImage3D(
                 GL_TEXTURE_2D_ARRAY,
-                0,              // mip level 0
-                GL_RGBA8,       // internal format
-                tileSize,       // width
-                tileSize,       // height
-                layerCount,     // depth = number of layers
-                0,              // border (must be 0)
-                GL_RGBA,        // format of supplied data
+                0,                  // mip level 0
+                GL_RGBA8,           // internal format
+                tileSize,           // width
+                tileSize,           // height
+                layerCount,         // depth = number of layers
+                0,                  // border (must be 0)
+                GL_RGBA,            // format of supplied data
                 GL_UNSIGNED_BYTE,
                 data
         );
 
-        // Generate full mip chain per layer — driver handles this automatically
+        // Generate mipmaps
         glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
 
-        // Nearest-neighbour mag for the crisp pixel-art look;
-        // nearest-mipmap-linear min for clean distance fade without blur.
+        // Set filtering for pixel-art
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-        // Clamp all axes — no wrapping between layers (R axis) or within tiles
+        // Clamp all axes
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
@@ -165,7 +158,8 @@ public class TextureArrayBuilder {
 
         LOGGER.info("Uploaded texture array to GPU (id={}, {}x{}, {} layers)",
                 id, tileSize, tileSize, layerCount);
-        return id;
+
+        return new TextureArray(id, tileSize, tileSize, layerCount);
     }
 
     // ── Texture loading ───────────────────────────────────────────────────────
@@ -184,7 +178,6 @@ public class TextureArrayBuilder {
                                 id, img.getWidth(), img.getHeight(), size, size);
                         return resizeImage(img, size);
                     }
-                    // Ensure ARGB format so getRGB() works consistently
                     return ensureARGB(img);
                 }
             }
@@ -201,10 +194,14 @@ public class TextureArrayBuilder {
         BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = img.createGraphics();
         int half = Math.max(1, size / 2);
-        g.setColor(Color.MAGENTA); g.fillRect(0,    0,    half, half);
-        g.setColor(Color.BLACK);   g.fillRect(half, 0,    half, half);
-        g.setColor(Color.BLACK);   g.fillRect(0,    half, half, half);
-        g.setColor(Color.MAGENTA); g.fillRect(half, half, half, half);
+        g.setColor(Color.MAGENTA);
+        g.fillRect(0, 0, half, half);
+        g.setColor(Color.BLACK);
+        g.fillRect(half, 0, half, half);
+        g.setColor(Color.BLACK);
+        g.fillRect(0, half, half, half);
+        g.setColor(Color.MAGENTA);
+        g.fillRect(half, half, half, half);
         g.dispose();
         return img;
     }
@@ -231,15 +228,28 @@ public class TextureArrayBuilder {
 
     // ── Builder API ───────────────────────────────────────────────────────────
 
-    public static Builder builder() { return new Builder(); }
+    public static Builder builder() {
+        return new Builder();
+    }
 
     public static class Builder {
         private final Set<Identifier> ids = new HashSet<>();
         private int tileSize = DEFAULT_TILE_SIZE;
 
-        public Builder addTexture(Identifier id)                    { ids.add(id); return this; }
-        public Builder addTextures(Collection<Identifier> texIds)   { ids.addAll(texIds); return this; }
-        public Builder addTexturesFromBlocks(Collection<Block> blks){ ids.addAll(collectTextureIds(blks)); return this; }
+        public Builder addTexture(Identifier id) {
+            ids.add(id);
+            return this;
+        }
+
+        public Builder addTextures(Collection<Identifier> texIds) {
+            ids.addAll(texIds);
+            return this;
+        }
+
+        public Builder addTexturesFromBlocks(Collection<Block> blks) {
+            ids.addAll(collectTextureIds(blks));
+            return this;
+        }
 
         public Builder tileSize(int size) {
             if (size <= 0 || (size & (size - 1)) != 0)

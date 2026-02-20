@@ -1,6 +1,6 @@
 package engine.strata.client.render.util;
 
-import engine.helios.MatrixStack;
+import engine.helios.rendering.vertex.MatrixStack;
 import org.joml.Matrix4f;
 
 public class RenderUtils {

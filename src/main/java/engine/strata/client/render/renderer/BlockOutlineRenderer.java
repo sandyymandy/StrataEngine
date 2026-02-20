@@ -1,7 +1,7 @@
 package engine.strata.client.render.renderer;
 
-import engine.helios.ShaderManager;
-import engine.helios.ShaderStack;
+import engine.helios.rendering.shader.ShaderManager;
+import engine.helios.rendering.shader.ShaderStack;
 import engine.strata.util.Identifier;
 import engine.strata.util.math.BlockPos;
 import engine.strata.util.math.BlockRaycast;

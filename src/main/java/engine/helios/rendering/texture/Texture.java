@@ -1,4 +1,4 @@
-package engine.helios;
+package engine.helios.rendering.texture;
 
 import engine.strata.core.io.ResourceManager;
 import engine.strata.util.Identifier;

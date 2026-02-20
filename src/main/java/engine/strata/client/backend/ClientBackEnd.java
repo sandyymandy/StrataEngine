@@ -11,7 +11,6 @@ import engine.strata.entity.entities.PlayerEntity;
 import engine.strata.event.events.KeyEvent;
 import engine.strata.event.events.MouseEvent;
 import engine.strata.event.events.MouseScrollEvent;
-import engine.strata.physics.JoltLoader;
 import engine.strata.registry.registries.EntityRegistry;
 import engine.strata.world.World;
 import org.slf4j.Logger;
@@ -41,7 +40,6 @@ public class ClientBackEnd implements Runnable {
         this.player.setPosition(0,120,0);
         world.addEntity(player);
         spawnTestEntities();
-        JoltLoader.load();
 
         // Pre-load chunks around spawn
         LOGGER.info("Pre-loading spawn chunks...");

@@ -1,7 +1,7 @@
 package engine.strata.client.render.util;
 
-import engine.helios.BufferBuilder;
-import engine.helios.RenderLayer;
+import engine.helios.rendering.vertex.BufferBuilder;
+import engine.helios.rendering.RenderLayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

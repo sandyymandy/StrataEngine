@@ -1,7 +1,7 @@
 package engine.strata.client.render.util;
 
-import engine.helios.RenderLayer;
-import engine.helios.ShaderStack;
+import engine.helios.rendering.RenderLayer;
+import engine.helios.rendering.shader.ShaderStack;
 import engine.strata.util.Identifier;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;

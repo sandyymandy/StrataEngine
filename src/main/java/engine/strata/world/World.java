@@ -1,10 +1,8 @@
 package engine.strata.world;
 
 import engine.strata.client.StrataClient;
-import engine.strata.client.input.keybind.Keybinds;
 import engine.strata.entity.Entity;
 import engine.strata.entity.entities.PlayerEntity;
-import engine.strata.physics.PhysicsManager;
 import engine.strata.util.math.BlockPos;
 import engine.strata.util.math.Random;
 import engine.strata.util.math.Vec3d;
@@ -28,8 +26,6 @@ public class World {
     private final ConcurrentHashMap<UUID, Entity> entities = new ConcurrentHashMap<>();
     private volatile List<Entity> entityList = new ArrayList<>();
 
-    private final PhysicsManager physicsManager;
-
     // Chunk system
     private final ChunkManager chunkManager;
     private final ChunkGenerator chunkGenerator;
@@ -46,8 +42,6 @@ public class World {
     public World(String worldName, long seed) {
         this.worldName = worldName;
         this.seed = seed;
-        this.physicsManager = new PhysicsManager();
-        this.physicsManager.init();
 
         // Initialize chunk system
         this.chunkManager = new ChunkManager();
@@ -88,10 +82,6 @@ public class World {
      * Ticks entities and manages chunk loading.
      */
     public void tick() {
-        if (physicsManager != null) {
-            physicsManager.update(1.0f / 60.0f);
-        }
-
         // Tick entities
         for (Entity entity : entityList) {
             entity.tick();
@@ -251,10 +241,6 @@ public class World {
         entityList = new ArrayList<>(entities.values());
     }
 
-    public PhysicsManager getPhysicsManager() {
-        return physicsManager;
-    }
-
     public ChunkManager getChunkManager() {
         return chunkManager;
     }
@@ -302,10 +288,6 @@ public class World {
 
         clearEntities();
         clearChunks();
-
-        if (physicsManager != null) {
-            physicsManager.shutdown();
-        }
 
         LOGGER.info("World '{}' shut down successfully", worldName);
     }

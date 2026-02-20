@@ -1,8 +1,8 @@
 package engine.strata.client.render.renderer.entity.util;
 
-import engine.helios.BufferBuilder;
-import engine.helios.MatrixStack;
-import engine.helios.RenderLayer;
+import engine.helios.rendering.vertex.BufferBuilder;
+import engine.helios.rendering.vertex.MatrixStack;
+import engine.helios.rendering.RenderLayer;
 import engine.strata.client.StrataClient;
 import engine.strata.client.render.model.io.ModelManager;
 import engine.strata.client.render.model.StrataModel;

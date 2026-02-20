@@ -1,4 +1,4 @@
-package engine.helios;
+package engine.helios.rendering.vertex;
 
 import org.joml.Matrix4f;
 

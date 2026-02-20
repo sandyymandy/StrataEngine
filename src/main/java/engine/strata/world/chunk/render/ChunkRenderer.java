@@ -1,6 +1,7 @@
 package engine.strata.world.chunk.render;
 
-import engine.helios.RenderLayer;
+import engine.helios.rendering.RenderLayer;
+import engine.helios.rendering.RenderSystem;
 import engine.strata.client.StrataClient;
 import engine.strata.client.render.Camera;
 import engine.strata.client.render.RenderLayers;
@@ -15,72 +16,75 @@ import org.joml.Matrix4f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.lwjgl.opengl.GL11.glBindTexture;
-import static org.lwjgl.opengl.GL30.GL_TEXTURE_2D_ARRAY;
-
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Refactored ChunkRenderer that properly uses Helios rendering engine
+ * instead of making direct OpenGL calls.
+ */
 public class ChunkRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger("ChunkRender");
 
     private final ChunkManager chunkManager;
     private final ChunkMeshBuilder chunkMeshBuilder;
-    private final Camera        camera;
+    private final Camera camera;
 
     private final Map<Long, ChunkMesh> meshes = new ConcurrentHashMap<>();
 
     private final RenderLayer chunkLayer;
-    private final int textureArrayGlId;
+    private final DynamicTextureArray textureArray;
 
     private int renderDistance = 64;
 
     // Stats
-    private int chunksRendered    = 0;
-    private int chunksCulled      = 0;
+    private int chunksRendered = 0;
+    private int chunksCulled = 0;
     private int trianglesRendered = 0;
 
     public ChunkRenderer(ChunkManager chunkManager, ChunkMeshBuilder chunkMeshBuilder,
                          Camera camera, Identifier atlasId) {
         this.chunkManager = chunkManager;
         this.chunkMeshBuilder = chunkMeshBuilder;
-        this.camera       = camera;
-        this.chunkLayer   = RenderLayers.getChunkLayer(atlasId);
+        this.camera = camera;
+        this.chunkLayer = RenderLayers.getChunkLayer(atlasId);
 
-        // Cache the GL id so we can rebind as GL_TEXTURE_2D_ARRAY after setup().
-        // RenderLayer.setup() calls glBindTexture(GL_TEXTURE_2D, id) which is the
-        // wrong target — we override it immediately before drawing.
-        DynamicTextureArray arr = TextureArrayManager.getInstance().getArray();
-        this.textureArrayGlId = (arr != null) ? arr.getTextureId() : 0;
+        // Get the texture array from the manager
+        this.textureArray = TextureArrayManager.getInstance().getArray();
+        if (textureArray == null) {
+            LOGGER.error("Texture array not initialized! Call TextureArrayManager.initialize() first.");
+        }
     }
 
-    // Main render loop
+    // ── Main render loop ──────────────────────────────────────────────────────
 
     public void render() {
-        chunksRendered    = 0;
-        chunksCulled      = 0;
+        chunksRendered = 0;
+        chunksCulled = 0;
         trianglesRendered = 0;
 
         submitMeshingJobs();
         processUploadQueue();
         pruneOrphanedMeshes();
 
+        // Setup render state through Helios
         chunkLayer.setup(camera);
 
-        // RenderLayer.setup() bound our texture as GL_TEXTURE_2D (wrong target).
-        // Rebind it as GL_TEXTURE_2D_ARRAY so the sampler2DArray in the shader
-        // actually sees the data.
-        if (textureArrayGlId != 0) {
-            glBindTexture(GL_TEXTURE_2D_ARRAY, textureArrayGlId);
+        // Bind the texture array through Helios RenderSystem
+        // This properly tracks state and uses GL_TEXTURE_2D_ARRAY
+        if (textureArray != null) {
+            RenderSystem.bindTextureArray(textureArray.getTextureArray());
         }
 
         renderVisibleChunks();
+
+        // Clean up render state through Helios
         chunkLayer.clean();
     }
 
-    // Meshing jobs
+    // ── Meshing jobs ──────────────────────────────────────────────────────────
 
     private void submitMeshingJobs() {
         for (Chunk chunk : chunkManager.getAllChunks()) {
@@ -91,22 +95,24 @@ public class ChunkRenderer {
         }
     }
 
-    // Upload queue
+    // ── Upload queue ──────────────────────────────────────────────────────────
 
     private void processUploadQueue() {
-        int uploaded           = 0;
+        int uploaded = 0;
         int maxUploadsPerFrame = 4;
 
         while (uploaded < maxUploadsPerFrame && chunkMeshBuilder.hasUploadTasks()) {
             ChunkMeshBuilder.MeshUploadTask task = chunkMeshBuilder.pollUploadTask();
             if (task == null) break;
 
-            long      key  = packChunkKey(task.chunkX, task.chunkZ);
+            long key = packChunkKey(task.chunkX, task.chunkZ);
             ChunkMesh mesh = meshes.computeIfAbsent(key,
                     k -> new ChunkMesh(task.chunkX, task.chunkZ));
 
+            // Upload through Helios-backed ChunkMesh
             mesh.upload(task.getData(), task.vertexCount);
-            // Release the off-heap DirectByteBuffer immediately, not at GC time.
+
+            // Release the off-heap DirectByteBuffer immediately
             task.releaseBuffer();
             uploaded++;
         }
@@ -116,22 +122,23 @@ public class ChunkRenderer {
         }
     }
 
-    // Orphan mesh pruning
+    // ── Orphan mesh pruning ───────────────────────────────────────────────────
 
     private void pruneOrphanedMeshes() {
         Iterator<Map.Entry<Long, ChunkMesh>> it = meshes.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<Long, ChunkMesh> entry = it.next();
-            ChunkMesh mesh  = entry.getValue();
-            Chunk     chunk = chunkManager.getChunk(mesh.getChunkX(), mesh.getChunkZ());
+            ChunkMesh mesh = entry.getValue();
+            Chunk chunk = chunkManager.getChunk(mesh.getChunkX(), mesh.getChunkZ());
             if (chunk == null) {
-                mesh.dispose();
+                mesh.dispose(); // Dispose through Helios
                 it.remove();
             }
         }
     }
 
-    // Rendering
+    // ── Rendering ─────────────────────────────────────────────────────────────
+
     private void renderVisibleChunks() {
         float camX = (float) camera.getPos().x;
         float camY = (float) camera.getPos().y;
@@ -169,8 +176,8 @@ public class ChunkRenderer {
         if (yRange == null) return false;
 
         float chunkCenterY = (yRange[0] + yRange[1]) / 2.0f;
-        float chunkHeight  = yRange[1] - yRange[0];
-        float half         = SubChunk.SIZE / 2.0f;
+        float chunkHeight = yRange[1] - yRange[0];
+        float half = SubChunk.SIZE / 2.0f;
         float radius = (float) Math.sqrt(
                 half * half + (chunkHeight / 2.0f) * (chunkHeight / 2.0f) + half * half);
 
@@ -179,31 +186,36 @@ public class ChunkRenderer {
     }
 
     private void renderChunk(Chunk chunk) {
-        long      key  = packChunkKey(chunk.getChunkX(), chunk.getChunkZ());
+        long key = packChunkKey(chunk.getChunkX(), chunk.getChunkZ());
         ChunkMesh mesh = meshes.get(key);
         if (mesh == null || !mesh.isUploaded() || mesh.isEmpty()) return;
 
+        // Render through Helios
         mesh.render();
         trianglesRendered += mesh.getVertexCount() / 3;
     }
 
-    // Disposal
+    // ── Disposal ──────────────────────────────────────────────────────────────
+
     public void disposeMesh(int chunkX, int chunkZ) {
-        long      key  = packChunkKey(chunkX, chunkZ);
+        long key = packChunkKey(chunkX, chunkZ);
         ChunkMesh mesh = meshes.remove(key);
-        if (mesh != null) mesh.dispose();
+        if (mesh != null) mesh.dispose(); // Dispose through Helios
     }
 
     public void disposeAll() {
-        for (ChunkMesh mesh : meshes.values()) mesh.dispose();
+        for (ChunkMesh mesh : meshes.values()) {
+            mesh.dispose(); // Dispose through Helios
+        }
         meshes.clear();
         LOGGER.info("Disposed all chunk meshes");
     }
 
-    // Stats / accessors
-    public int getMeshCount()         { return meshes.size(); }
-    public int getChunksRendered()    { return chunksRendered; }
-    public int getChunksCulled()      { return chunksCulled; }
+    // ── Stats / accessors ─────────────────────────────────────────────────────
+
+    public int getMeshCount() { return meshes.size(); }
+    public int getChunksRendered() { return chunksRendered; }
+    public int getChunksCulled() { return chunksCulled; }
     public int getTrianglesRendered() { return trianglesRendered; }
 
     /** Returns render distance in chunks. */

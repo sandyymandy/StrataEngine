@@ -5,8 +5,8 @@ import engine.strata.client.backend.ClientBackEnd;
 import engine.strata.client.frontend.ClientFrontEnd;
 import engine.strata.client.frontend.window.Window;
 import engine.strata.client.frontend.window.WindowConfig;
-import engine.strata.client.render.Camera;
-import engine.strata.client.render.renderer.MasterRenderer;
+import engine.strata.client.frontend.render.Camera;
+import engine.strata.client.frontend.render.renderer.MasterRenderer;
 import engine.strata.debug.DisplayDebugInfo;
 import engine.strata.entity.Entity;
 import engine.strata.entity.entities.PlayerEntity;
@@ -23,61 +23,61 @@ public class StrataClient implements ClientInitializer {
     private final ClientBackEnd backEnd;
     private final ClientFrontEnd frontEnd;
     private final EventBus eventBus = new EventBus();
+
+    private static final float TICKS_PER_SECOND = 40F;
+    private static final float TIME_PER_TICK = 1.0F / TICKS_PER_SECOND;
+
     public StrataClient() {
         instance = this;
 
         // 1. Initialize Window (Must be on main thread for OpenGL)
-        this.window = new Window(new WindowConfig(1280, 720, "StrataEngine"));
+        this.window = new Window(new WindowConfig(1920, 1080, "StrataEngine"));
 
-        // 3. Setup Systems
+        // 2. Setup Systems
         this.frontEnd = new ClientFrontEnd(window, this);
         this.backEnd = new ClientBackEnd();
     }
 
     public void run() {
-        // Start Backend Thread
-        Thread logicThread = new Thread(backEnd, "LogicThread");
-        logicThread.start();
+        Thread.currentThread().setName("MainThread");
 
-        Thread.currentThread().setName("RenderThread");
-
+        long lastTime = System.nanoTime();
+        double accumulator = 0.0;
         long lastFrameTime = System.nanoTime();
 
-        // MAIN RENDER LOOP (Main Thread)
+        // MAIN LOOP (Single Thread - Logic + Render)
         while (!window.shouldClose()) {
             long now = System.nanoTime();
             float deltaTime = (now - lastFrameTime) / 1_000_000_000.0f;
             lastFrameTime = now;
 
-            // 1. Get the "Safe" Snapshot from Backend
-            var entityStates = backEnd.getLatestEntitySnapshots();
-            float partialTicks = backEnd.getLatestPartialTicks();
+            // Accumulate time for fixed timestep logic
+            accumulator += (now - lastTime) / 1_000_000_000.0;
+            lastTime = now;
 
-            // 2. Render using only the Snapshot
-            frontEnd.render(entityStates, partialTicks, deltaTime);
+            // Process input
+            backEnd.processInput();
+
+            // Fixed timestep logic updates
+            while (accumulator >= TIME_PER_TICK) {
+                backEnd.tick();
+                accumulator -= TIME_PER_TICK;
+            }
+
+            // Calculate partial ticks for interpolation
+            float partialTicks = (float) (accumulator / TIME_PER_TICK);
+
+            // Render using current entity states with interpolation
+            frontEnd.render(backEnd.getWorld().getEntities(), partialTicks, deltaTime);
 
             window.updateCursorMode();
             window.swapBuffers();
             GLFW.glfwPollEvents();
         }
 
+        // Shutdown
         backEnd.shutdown();
-
-        // Wait for the backend thread to finish before cleaning up
-        try {
-            logicThread.join(2000); // Wait up to 2 seconds
-            if (logicThread.isAlive()) {
-                LOGGER.warn("Backend thread did not stop gracefully, interrupting");
-                logicThread.interrupt();
-            }
-        } catch (InterruptedException e) {
-            LOGGER.warn("Interrupted while waiting for backend thread", e);
-            Thread.currentThread().interrupt();
-        }
-
-        // Now shut down the world (stops chunk generation/meshing threads)
         frontEnd.shutDown();
-
 
         LOGGER.info("Client shutdown complete");
     }

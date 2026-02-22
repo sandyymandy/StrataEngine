@@ -2,7 +2,7 @@ package engine.helios.rendering;
 
 import engine.helios.rendering.shader.ShaderStack;
 import engine.helios.rendering.texture.TextureManager;
-import engine.strata.client.render.Camera;
+import engine.strata.client.frontend.render.Camera;
 import engine.strata.util.Identifier;
 
 /**

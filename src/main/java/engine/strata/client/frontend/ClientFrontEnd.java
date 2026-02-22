@@ -2,26 +2,24 @@ package engine.strata.client.frontend;
 
 import engine.helios.rendering.RenderSystem;
 import engine.helios.rendering.shader.ShaderManager;
-import engine.strata.api.ClientBackEndInitializer;
 import engine.strata.api.ClientFrontEndInitializer;
 import engine.strata.client.StrataClient;
 import engine.strata.client.frontend.window.Window;
-import engine.strata.client.render.Camera;
-import engine.strata.client.render.renderer.MasterRenderer;
-import engine.strata.client.render.renderer.entity.BiaEntityRenderer;
-import engine.strata.client.render.renderer.entity.PlayerEntityRenderer;
-import engine.strata.client.render.renderer.entity.util.EntityRendererRegistry;
-import engine.strata.client.render.snapshot.EntityRenderSnapshot;
+import engine.strata.client.frontend.render.Camera;
+import engine.strata.client.frontend.render.renderer.MasterRenderer;
+import engine.strata.client.frontend.render.renderer.entity.BiaEntityRenderer;
+import engine.strata.client.frontend.render.renderer.entity.PlayerEntityRenderer;
+import engine.strata.client.frontend.render.renderer.entity.util.EntityRendererRegistry;
 import engine.strata.core.entrypoint.EntrypointManager;
 import engine.strata.debug.DisplayDebugInfo;
+import engine.strata.entity.Entity;
 import engine.strata.registry.registries.EntityRegistry;
 import engine.strata.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Map;
-
+import java.util.Collection;
 
 public class ClientFrontEnd {
     public static final Logger LOGGER = LoggerFactory.getLogger("ClientFrontEnd");
@@ -43,16 +41,12 @@ public class ClientFrontEnd {
         init();
         EntrypointManager.invoke("client_front_end", ClientFrontEndInitializer.class,
                 ClientFrontEndInitializer::onFrontEndInitialize);
-
     }
 
-
-    public void render(Map<Integer, EntityRenderSnapshot> states, float partialTicks, float deltaTime) {
+    public void render(Collection<Entity> entities, float partialTicks, float deltaTime) {
         limitFramerate();
-
-        this.masterRenderer.render(states, partialTicks, deltaTime);
+        this.masterRenderer.render(entities, partialTicks, deltaTime);
     }
-
 
     private void limitFramerate() {
         if (framerateCap == FramerateCap.UNCAPPED || framerateCap == FramerateCap.VSYNC) {
@@ -131,7 +125,7 @@ public class ClientFrontEnd {
     }
 
     private void init() {
-    setFramerateCap(FramerateCap.FPS_180);
+        setFramerateCap(FramerateCap.FPS_180);
         EntityRendererRegistry.register(EntityRegistry.PLAYER, PlayerEntityRenderer::new);
         EntityRendererRegistry.register(EntityRegistry.BIA, BiaEntityRenderer::new);
     }
@@ -213,5 +207,5 @@ public class ClientFrontEnd {
         }
     }
 
-    // TODO: Fixed the bug where even though this system supports infinite height limit the chunk rendering stops at a certan distance
+    // TODO: Fixed the bug where even though this system supports infinite height limit the chunk rendering stops at a certain distance
 }

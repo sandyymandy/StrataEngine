@@ -1,0 +1,6 @@
+{
+  "parent": "strata:cube_all",
+  "textures": {
+    "all": "strata:stone"
+  }
+}

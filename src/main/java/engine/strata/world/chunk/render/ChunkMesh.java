@@ -20,9 +20,6 @@ public class ChunkMesh {
     // Vertex format for chunk rendering
     private static final VertexFormat CHUNK_FORMAT = VertexFormat.POSITION_TEXTURE_LAYER_BRIGHTNESS;
 
-    // 7 floats per vertex: pos(3) + uv(2) + layer(1) + brightness(1)
-    static final int FLOATS_PER_VERTEX = 7;
-
     private final MeshRenderer renderer;
     private final int chunkX;
     private final int chunkZ;

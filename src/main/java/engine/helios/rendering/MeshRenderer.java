@@ -11,10 +11,6 @@ import static org.lwjgl.opengl.GL15.*;
 import static org.lwjgl.opengl.GL20.*;
 import static org.lwjgl.opengl.GL30.*;
 
-/**
- * Helios abstraction for rendering meshes with VAO/VBO management.
- * Handles vertex format configuration and draw calls.
- */
 public class MeshRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger("MeshRenderer");
 

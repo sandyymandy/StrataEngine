@@ -6,6 +6,7 @@ import engine.strata.entity.util.EntityKey;
 import engine.strata.util.math.BlockPos;
 import engine.strata.util.math.BlockRaycast;
 import engine.strata.world.World;
+import engine.strata.world.block.Blocks;
 
 import java.util.List;
 
@@ -42,9 +43,17 @@ public class PlayerEntity extends Entity {
         super(key, world);
     }
 
+    // Movement speeds
+    private float groundSpeed = 4.317f; // blocks per second (similar to Minecraft sprint)
+    private float airSpeed = 0.02f; // Air control multiplier
+    private float jumpStrength = 10.0f; // Upward velocity for jumping
+
     @Override
     public void tick() {
         super.tick();
+
+        // Handle movement using rigid body physics
+        handleMovement();
 
         // Update the block the player is looking at (used for both interaction
         // and the outline rendered by MasterRenderer).
@@ -52,6 +61,52 @@ public class PlayerEntity extends Entity {
 
         handleBlockInteraction();
         handleMorph();
+    }
+
+    // ── Movement ──────────────────────────────────────────────────────────────
+
+    private void handleMovement() {
+        float forward = 0;
+        float strafe = 0;
+        float vertical = 0;
+
+        // Get movement input
+        if (Keybinds.FORWARDS.isPressedTick()) forward -= 1;
+        if (Keybinds.BACKWARDS.isPressedTick()) forward += 1;
+        if (Keybinds.RIGHT.isPressedTick()) strafe += 1;
+        if (Keybinds.LEFT.isPressedTick()) strafe -= 1;
+        if (Keybinds.UP.isPressedTick()) vertical += 1;
+        if (Keybinds.DOWN.isPressedTick()) vertical -= 1;
+
+        // 2. Convert the entity's yaw to radians
+        // (Ensure you are using standard java.lang.Math here if your engine's Math class lacks toRadians)
+
+
+        // Speed modifications
+        float speed = groundSpeed;
+        if (Keybinds.FAST_PLUS.isPressedTick()) {
+            speed = 5.0f;
+        } else if (Keybinds.FAST.isPressedTick()) {
+            speed = 1.0f;
+        }
+
+        // Apply movement based on mode
+        if (noClip) {
+            // Flying mode - move in 3D direction of camera
+            if (forward != 0 || strafe != 0 || vertical != 0) {
+                moveRelative3D(forward, strafe, vertical, speed);
+            }
+        } else {
+            // Ground mode - horizontal movement only
+            if (forward != 0 || strafe != 0) {
+                moveRelative(forward, strafe, speed);
+            }
+
+            // Jumping
+            if (Keybinds.JUMP.isPressedTick()) {
+                jump(jumpStrength);
+            }
+        }
     }
 
     // ── Block targeting ───────────────────────────────────────────────────────

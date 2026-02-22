@@ -2,17 +2,20 @@ package engine.strata.world.chunk.render;
 
 import engine.strata.client.StrataClient;
 import engine.strata.world.block.Block;
-import engine.strata.world.block.BlockTexture;
 import engine.strata.world.block.Blocks;
-import engine.strata.world.block.DynamicTextureArray;
+import engine.strata.world.block.model.BlockModel;
+import engine.strata.world.block.model.BlockModelLoader;
+import engine.strata.world.block.texture.DynamicTextureArray;
 import engine.strata.world.chunk.Chunk;
 import engine.strata.world.chunk.ChunkManager;
 import engine.strata.world.chunk.SubChunk;
+import engine.strata.util.Identifier;
 import org.lwjgl.BufferUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.FloatBuffer;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -20,21 +23,33 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Builds chunk meshes on a dedicated thread.
- * <p>
- * Vertex layout per vertex: [ x, y, z,  u, v,  layer,  brightness ] — 7 floats.
- * <p>
- * This matches the chunk vertex shader exactly:
- *   layout(location = 0) in vec3  a_Position;    // x, y, z
- *   layout(location = 1) in vec2  a_TexCoord;    // u, v  (always 0→1 per face)
- *   layout(location = 2) in float a_Layer;       // texture array layer index
- *   layout(location = 3) in float a_Brightness;  // simple directional lighting
- * <p>
- * Because we use a GL_TEXTURE_2D_ARRAY every texture occupies its own slice,
- * so UVs are always the full [0,0]→[1,1] square — no atlas sub-division, no
- * border padding, and no mipmap bleeding between tiles.
+ * Builds chunk meshes on a dedicated background thread using the BlockModel system.
  *
- * FIX: Removed "if (y < 0) return true;" to allow negative Y coordinates
+ * <h3>Vertex layout</h3>
+ * Each vertex is 7 floats:
+ * <pre>
+ *   [ x, y, z,   u, v,   layer,   brightness ]
+ *    ^-pos(3)-^  ^uv(2)^ ^-f32-^  ^---f32---^
+ * </pre>
+ * This matches the chunk vertex shader exactly:
+ * <pre>
+ *   layout(location = 0) in vec3  a_Position;   // world-space block corner
+ *   layout(location = 1) in vec2  a_TexCoord;   // [0,1] within the texture layer
+ *   layout(location = 2) in float a_Layer;      // GL_TEXTURE_2D_ARRAY layer index
+ *   layout(location = 3) in float a_Brightness; // simple directional AO factor
+ * </pre>
+ *
+ * <h3>Geometry source</h3>
+ * Instead of hardcoded full-cube quads, all geometry is now derived from
+ * {@link BlockModel} elements loaded via {@link BlockModelLoader}.  Each element
+ * is a cuboid in 0–16 block space; coordinates are normalised to 0–1 before
+ * being offset to world space.  This means non-full-cube blocks (slabs, stairs,
+ * fences, decorative elements) render correctly without any special-casing here.
+ *
+ * <h3>Culling</h3>
+ * Face visibility still uses the neighbour-block opacity check for faces that
+ * declare a {@code cullface} in their model.  Faces without a cullface (e.g.
+ * interior cross-planes on flowers) are always emitted.
  */
 public class ChunkMeshBuilder implements Runnable {
     private static final Logger LOGGER = LoggerFactory.getLogger("ChunkMeshBuilder");
@@ -42,11 +57,11 @@ public class ChunkMeshBuilder implements Runnable {
     private static final int INITIAL_FLOAT_CAPACITY = (4 * 1024 * 1024) / Float.BYTES;
 
     // 7 floats per vertex: pos(3) + uv(2) + layer(1) + brightness(1)
-    // Must stay in sync with ChunkMesh.FLOATS_PER_VERTEX.
     static final int FLOATS_PER_VERTEX = 7;
 
-    private final ChunkManager chunkManager;
+    private final ChunkManager      chunkManager;
     private final DynamicTextureArray textureArray;
+    private final BlockModelLoader  modelLoader;
 
     private final Set<ChunkManager.ChunkPos> meshingQueue = ConcurrentHashMap.newKeySet();
     private final Queue<MeshUploadTask>      uploadQueue  = new ConcurrentLinkedQueue<>();
@@ -60,9 +75,15 @@ public class ChunkMeshBuilder implements Runnable {
     private long totalMeshTimeNs = 0;
 
     public ChunkMeshBuilder(ChunkManager chunkManager, DynamicTextureArray textureArray) {
+        this(chunkManager, textureArray, new BlockModelLoader());
+    }
+
+    public ChunkMeshBuilder(ChunkManager chunkManager, DynamicTextureArray textureArray,
+                            BlockModelLoader modelLoader) {
         this.chunkManager = chunkManager;
         this.textureArray = textureArray;
-        LOGGER.info("ChunkMesher initialized (GL_TEXTURE_2D_ARRAY mode)");
+        this.modelLoader  = modelLoader;
+        LOGGER.info("ChunkMesher initialized (BlockModel + GL_TEXTURE_2D_ARRAY mode)");
     }
 
     // ── Thread lifecycle ──────────────────────────────────────────────────────
@@ -92,7 +113,6 @@ public class ChunkMeshBuilder implements Runnable {
                 meshChunk(pos.x, pos.z);
 
             } catch (InterruptedException e) {
-                // Restore interrupt status
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
@@ -146,38 +166,75 @@ public class ChunkMeshBuilder implements Runnable {
                     if (blockId == Blocks.AIR.getNumericId()) continue;
 
                     Block block = Blocks.getByNumericId(blockId);
-                    buildBlockFaces(chunk, x, y, z, block, verts);
+                    buildBlockMesh(chunk, x, y, z, block, verts);
                 }
+            }
+        }
+    }
+
+    // ── Block mesh building ──────────────────────────────────────────────────
+
+    /**
+     * Emits geometry for one block at local chunk coordinates (x, y, z).
+     *
+     * The block's model is resolved via {@link BlockModelLoader}. For each
+     * element in the model, each face is tested for visibility using the
+     * face's declared {@code cullface} direction.  Faces that pass the test
+     * have their quads appended to {@code v}.
+     */
+    private void buildBlockMesh(Chunk chunk, int x, int y, int z, Block block, FloatList v) {
+        Identifier modelId = block.getModelId();
+        if (modelId == null) return;
+
+        BlockModel model = modelLoader.loadModel(modelId);
+        if (model == null || model.getElements().isEmpty()) return;
+
+        int wx = chunk.getChunkX() * SubChunk.SIZE + x;
+        int wz = chunk.getChunkZ() * SubChunk.SIZE + z;
+
+        for (BlockModel.Element element : model.getElements()) {
+            for (Map.Entry<BlockModel.Face, BlockModel.FaceData> entry : element.getFaces().entrySet()) {
+                BlockModel.Face     face     = entry.getKey();
+                BlockModel.FaceData faceData = entry.getValue();
+
+                // ── Cullface test ─────────────────────────────────────────
+                if (faceData.shouldCull()) {
+                    int[] offset = faceData.getCullface().offset();
+                    if (!shouldRenderFace(chunk, x + offset[0], y + offset[1], z + offset[2])) {
+                        continue;
+                    }
+                }
+
+                // ── Texture lookup ────────────────────────────────────────
+                Identifier texId = faceData.getTexture();
+                if (texId == null) {
+                    // Unresolved variable — use missing-texture fallback (layer 0).
+                    LOGGER.warn("Unresolved texture on block {} face {} (var={})",
+                            block.getId(), face, faceData.getTextureVariable());
+                    texId = Identifier.ofEngine("missing");
+                }
+                int layer = textureArray.getLayer(texId);
+
+                // ── UV ────────────────────────────────────────────────────
+                float[] uv         = faceData.getUvNormalized(element, face);
+                float   brightness = getFaceBrightness(face);
+
+                // ── Emit quad ─────────────────────────────────────────────
+                buildFaceQuad(wx, y, wz, element, face, uv, layer, brightness, v);
             }
         }
     }
 
     // ── Face visibility ──────────────────────────────────────────────────────
 
-    private void buildBlockFaces(Chunk chunk, int x, int y, int z, Block block, FloatList v) {
-        int wx = chunk.getChunkX() * SubChunk.SIZE + x;
-        int wz = chunk.getChunkZ() * SubChunk.SIZE + z;
-
-        if (shouldRenderFace(chunk, x, y + 1, z)) buildTopFace   (wx, y, wz, block, v);
-        if (shouldRenderFace(chunk, x, y - 1, z)) buildBottomFace(wx, y, wz, block, v);
-        if (shouldRenderFace(chunk, x, y, z - 1)) buildNorthFace (wx, y, wz, block, v);
-        if (shouldRenderFace(chunk, x, y, z + 1)) buildSouthFace (wx, y, wz, block, v);
-        if (shouldRenderFace(chunk, x - 1, y, z)) buildWestFace  (wx, y, wz, block, v);
-        if (shouldRenderFace(chunk, x + 1, y, z)) buildEastFace  (wx, y, wz, block, v);
-    }
-
-    /**
-     * FIX: Removed "if (y < 0) return true;" to allow rendering faces below Y=0
-     */
     private boolean shouldRenderFace(Chunk chunk, int x, int y, int z) {
-        // Check if position is outside chunk bounds (XZ only, Y is infinite)
         if (x < 0 || x >= SubChunk.SIZE || z < 0 || z >= SubChunk.SIZE) {
             return shouldRenderFaceNeighbor(chunk, x, y, z);
         }
 
         short id = chunk.getBlock(x, y, z);
         if (id == Blocks.AIR.getNumericId()) return true;
-        return !Blocks.getByNumericId(id).isOpaque();
+        return !Blocks.getByNumericId(id).isFullBlock();
     }
 
     private boolean shouldRenderFaceNeighbor(Chunk chunk, int x, int y, int z) {
@@ -193,21 +250,117 @@ public class ChunkMeshBuilder implements Runnable {
 
         short id = neighbor.getBlock(lx, y, lz);
         if (id == Blocks.AIR.getNumericId()) return true;
-        return !Blocks.getByNumericId(id).isOpaque();
+        return !Blocks.getByNumericId(id).isFullBlock();
     }
 
-    // ── Layer helper ─────────────────────────────────────────────────────────
+    // ── Quad builder ─────────────────────────────────────────────────────────
 
     /**
-     * Returns the texture array layer index for the given face of a block.
-     * UVs for every face are always [0,0]→[1,1] — no atlas calculation needed.
+     * Emits 6 vertices (2 CCW triangles) for one face of a model element.
+     *
+     * <p>Vertex positions are computed from the element's normalised bounds
+     * (0–1) offset to world space at (wx, wy, wz). UV corners are mapped as:
+     * <pre>
+     *   (u1,v1) ─── (u2,v1)
+     *      │            │
+     *   (u1,v2) ─── (u2,v2)
+     * </pre>
+     * where the exact corner assignment per face matches the traditional
+     * axis-aligned mapping (x→U for top/bottom/N/S, z→U for E/W).
+     *
+     * <p>For custom UV (declared in the model JSON) the values from
+     * {@link BlockModel.FaceData#getUvNormalized} are used verbatim.
      */
-    private int layer(Block block, BlockTexture.Face face) {
-        BlockTexture.TextureReference ref = block.getTexture().getTextureForFace(face);
-        return textureArray.getLayer(ref.getIdentifier());
+    private void buildFaceQuad(int wx, int wy, int wz,
+                               BlockModel.Element element,
+                               BlockModel.Face face,
+                               float[] uv, int layer, float brightness,
+                               FloatList v) {
+        float fx = element.fx(), fy = element.fy(), fz = element.fz();
+        float tx = element.tx(), ty = element.ty(), tz = element.tz();
+
+        float u1 = uv[0], v1 = uv[1], u2 = uv[2], v2 = uv[3];
+
+        float bx = wx, by = wy, bz = wz;
+
+        switch (face) {
+            case UP:
+                // y = by+ty  |  x→u  |  z→v
+                vert(v, bx+tx, by+ty, bz+tz, u2, v2, layer, brightness);
+                vert(v, bx+tx, by+ty, bz+fz, u2, v1, layer, brightness);
+                vert(v, bx+fx, by+ty, bz+fz, u1, v1, layer, brightness);
+                vert(v, bx+tx, by+ty, bz+tz, u2, v2, layer, brightness);
+                vert(v, bx+fx, by+ty, bz+fz, u1, v1, layer, brightness);
+                vert(v, bx+fx, by+ty, bz+tz, u1, v2, layer, brightness);
+                break;
+
+            case DOWN:
+                // y = by+fy  |  x→u  |  z→v
+                vert(v, bx+tx, by+fy, bz+fz, u2, v1, layer, brightness);
+                vert(v, bx+tx, by+fy, bz+tz, u2, v2, layer, brightness);
+                vert(v, bx+fx, by+fy, bz+tz, u1, v2, layer, brightness);
+                vert(v, bx+tx, by+fy, bz+fz, u2, v1, layer, brightness);
+                vert(v, bx+fx, by+fy, bz+tz, u1, v2, layer, brightness);
+                vert(v, bx+fx, by+fy, bz+fz, u1, v1, layer, brightness);
+                break;
+
+            case NORTH:
+                // z = bz+fz  |  x→u  |  y→v (inverted: ty→v1, fy→v2)
+                vert(v, bx+tx, by+fy, bz+fz, u2, v2, layer, brightness);
+                vert(v, bx+fx, by+fy, bz+fz, u1, v2, layer, brightness);
+                vert(v, bx+fx, by+ty, bz+fz, u1, v1, layer, brightness);
+                vert(v, bx+tx, by+fy, bz+fz, u2, v2, layer, brightness);
+                vert(v, bx+fx, by+ty, bz+fz, u1, v1, layer, brightness);
+                vert(v, bx+tx, by+ty, bz+fz, u2, v1, layer, brightness);
+                break;
+
+            case SOUTH:
+                // z = bz+tz  |  x→u  |  y→v (inverted)
+                vert(v, bx+fx, by+fy, bz+tz, u1, v2, layer, brightness);
+                vert(v, bx+tx, by+fy, bz+tz, u2, v2, layer, brightness);
+                vert(v, bx+tx, by+ty, bz+tz, u2, v1, layer, brightness);
+                vert(v, bx+fx, by+fy, bz+tz, u1, v2, layer, brightness);
+                vert(v, bx+tx, by+ty, bz+tz, u2, v1, layer, brightness);
+                vert(v, bx+fx, by+ty, bz+tz, u1, v1, layer, brightness);
+                break;
+
+            case WEST:
+                // x = bx+fx  |  z→u  |  y→v (inverted)
+                vert(v, bx+fx, by+ty, bz+fz, u1, v1, layer, brightness);
+                vert(v, bx+fx, by+fy, bz+fz, u1, v2, layer, brightness);
+                vert(v, bx+fx, by+fy, bz+tz, u2, v2, layer, brightness);
+                vert(v, bx+fx, by+ty, bz+fz, u1, v1, layer, brightness);
+                vert(v, bx+fx, by+fy, bz+tz, u2, v2, layer, brightness);
+                vert(v, bx+fx, by+ty, bz+tz, u2, v1, layer, brightness);
+                break;
+
+            case EAST:
+                // x = bx+tx  |  z→u (inverted: tz→u1, fz→u2... keep symmetric with WEST)
+                vert(v, bx+tx, by+ty, bz+tz, u2, v1, layer, brightness);
+                vert(v, bx+tx, by+fy, bz+tz, u2, v2, layer, brightness);
+                vert(v, bx+tx, by+fy, bz+fz, u1, v2, layer, brightness);
+                vert(v, bx+tx, by+ty, bz+fz, u1, v1, layer, brightness);
+                vert(v, bx+tx, by+ty, bz+tz, u2, v1, layer, brightness);
+                vert(v, bx+tx, by+fy, bz+fz, u1, v2, layer, brightness);
+                break;
+        }
     }
 
-    // ── Vertex helper ────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Simple directional lighting factor per face normal.
+     * Top is brightest; bottom is darkest; sides are intermediate.
+     */
+    private static float getFaceBrightness(BlockModel.Face face) {
+        switch (face) {
+            case UP:             return 1.0f;
+            case DOWN:           return 0.7f;
+            case NORTH: case SOUTH: return 0.8f;
+            case WEST:  case EAST:  return 0.9f;
+            default:             return 1.0f;
+        }
+    }
 
     /**
      * Write one vertex: pos(3) + uv(2) + layer(1) + brightness(1) = 7 floats.
@@ -218,74 +371,6 @@ public class ChunkMeshBuilder implements Runnable {
         v.add(u); v.add(tv);
         v.add((float) layer);
         v.add(brightness);
-    }
-
-    // ── Face builders ────────────────────────────────────────────────────────
-
-    private void buildTopFace(int x, int y, int z, Block block, FloatList v) {
-        int layer = layer(block, BlockTexture.Face.TOP);
-        float s = 1.0f;
-        vert(v, x+1, y+1, z+1, 1,1, layer, s);
-        vert(v, x+1, y+1, z,   1,0, layer, s);
-        vert(v, x,   y+1, z,   0,0, layer, s);
-        vert(v, x,   y+1, z+1, 0,1, layer, s);
-        vert(v, x+1, y+1, z+1, 1,1, layer, s);
-        vert(v, x,   y+1, z,   0,0, layer, s);
-    }
-
-    private void buildBottomFace(int x, int y, int z, Block block, FloatList v) {
-        int layer = layer(block, BlockTexture.Face.BOTTOM);
-        float s = 0.7f;
-        vert(v, x+1, y, z,   1,0, layer, s);
-        vert(v, x+1, y, z+1, 1,1, layer, s);
-        vert(v, x,   y, z+1, 0,1, layer, s);
-        vert(v, x,   y, z,   0,0, layer, s);
-        vert(v, x+1, y, z,   1,0, layer, s);
-        vert(v, x,   y, z+1, 0,1, layer, s);
-    }
-
-    private void buildNorthFace(int x, int y, int z, Block block, FloatList v) {
-        int layer = layer(block, BlockTexture.Face.NORTH);
-        float s = 0.8f;
-        vert(v, x+1, y,   z, 1,1, layer, s);
-        vert(v, x,   y,   z, 0,1, layer, s);
-        vert(v, x,   y+1, z, 0,0, layer, s);
-        vert(v, x+1, y,   z, 1,1, layer, s);
-        vert(v, x,   y+1, z, 0,0, layer, s);
-        vert(v, x+1, y+1, z, 1,0, layer, s);
-    }
-
-    private void buildSouthFace(int x, int y, int z, Block block, FloatList v) {
-        int layer = layer(block, BlockTexture.Face.SOUTH);
-        float s = 0.8f;
-        vert(v, x,   y,   z+1, 0,1, layer, s);
-        vert(v, x+1, y,   z+1, 1,1, layer, s);
-        vert(v, x+1, y+1, z+1, 1,0, layer, s);
-        vert(v, x,   y,   z+1, 0,1, layer, s);
-        vert(v, x+1, y+1, z+1, 1,0, layer, s);
-        vert(v, x,   y+1, z+1, 0,0, layer, s);
-    }
-
-    private void buildWestFace(int x, int y, int z, Block block, FloatList v) {
-        int layer = layer(block, BlockTexture.Face.WEST);
-        float s = 0.9f;
-        vert(v, x, y+1, z,   0,0, layer, s);
-        vert(v, x, y,   z,   0,1, layer, s);
-        vert(v, x, y,   z+1, 1,1, layer, s);
-        vert(v, x, y+1, z+1, 1,0, layer, s);
-        vert(v, x, y+1, z,   0,0, layer, s);
-        vert(v, x, y,   z+1, 1,1, layer, s);
-    }
-
-    private void buildEastFace(int x, int y, int z, Block block, FloatList v) {
-        int layer = layer(block, BlockTexture.Face.EAST);
-        float s = 0.9f;
-        vert(v, x+1, y+1, z+1, 1,0, layer, s);
-        vert(v, x+1, y,   z+1, 1,1, layer, s);
-        vert(v, x+1, y,   z,   0,1, layer, s);
-        vert(v, x+1, y+1, z,   0,0, layer, s);
-        vert(v, x+1, y+1, z+1, 1,0, layer, s);
-        vert(v, x+1, y,   z,   0,1, layer, s);
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -305,8 +390,7 @@ public class ChunkMeshBuilder implements Runnable {
     public void resume() { paused.set(false); }
 
     /**
-     * Stops the meshing thread, interrupts its sleep, waits for it to finish,
-     * and releases all pending off-heap buffers.
+     * Stops the meshing thread and releases all pending off-heap buffers.
      */
     public void stop() {
         running.set(false);
@@ -322,7 +406,6 @@ public class ChunkMeshBuilder implements Runnable {
                 Thread.currentThread().interrupt();
             }
         }
-        // Drain any pending upload tasks and release their off-heap buffers
         MeshUploadTask task;
         while ((task = uploadQueue.poll()) != null) {
             task.releaseBuffer();

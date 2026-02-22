@@ -1,6 +1,7 @@
-package engine.strata.world.block;
+package engine.strata.world.block.texture;
 
-import engine.strata.util.Identifier;
+import engine.strata.world.block.Block;
+import engine.strata.world.block.model.BlockModelLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,7 +50,7 @@ public class TextureArrayManager {
         LOGGER.info("Initializing block texture array from {} blocks, tileSize={}",
                 blocks.size(), tileSize);
         try {
-            blockArray  = TextureArrayBuilder.buildArrayFromBlocks(blocks, tileSize);
+            blockArray  = TextureArrayBuilder.buildArrayFromBlocks(blocks, new BlockModelLoader(), tileSize);
             initialized = true;
             LOGGER.info("Texture array ready: {} layers", blockArray.getLayerCount());
             return blockArray;

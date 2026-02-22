@@ -122,4 +122,67 @@ public class Vec3d {
     public String toString() {
         return String.format("X: %f, Y: %f, Z: %f", this.x, this.y, this.z);
     }
+
+    public Vec3d multiply(double x, double y, double z) {
+        return new Vec3d(this.x * x, this.y * y, this.z * z);
+    }
+
+    public Vec3d multiply(Vec3d vec) {
+        return this.multiply(vec.getX(), vec.getY(), vec.getZ());
+    }
+
+    public Vec3d multiply(double value) {
+        return this.multiply(value, value, value);
+    }
+
+    public Vec3d divide(double x, double y, double z) {
+        return new Vec3d(
+                this.x / x,
+                this.y / y,
+                this.z / z
+        );
+    }
+
+    public Vec3d divide(Vec3d vec) {
+        return this.divide(vec.getX(), vec.getY(), vec.getZ());
+    }
+
+    public Vec3d divide(double value) {
+        return this.divide(value, value, value);
+    }
+
+    public double length() {
+        return sqrt(this.x * this.x + this.y * this.y + this.z * this.z);
+    }
+
+    public double lengthSquared() {
+        return this.x * this.x + this.y * this.y + this.z * this.z;
+    }
+
+    public double distanceTo(Vec3d other) {
+        double dx = this.x - other.x;
+        double dy = this.y - other.y;
+        double dz = this.z - other.z;
+        return sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    public double distanceSquaredTo(Vec3d other) {
+        double dx = this.x - other.x;
+        double dy = this.y - other.y;
+        double dz = this.z - other.z;
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    public Vec3d negate() {
+        return new Vec3d(-this.x, -this.y, -this.z);
+    }
+
+    public Vec3d crossProduct(Vec3d vec) {
+        return new Vec3d(
+                this.y * vec.z - this.z * vec.y,
+                this.z * vec.x - this.x * vec.z,
+                this.x * vec.y - this.y * vec.x
+        );
+    }
+
 }

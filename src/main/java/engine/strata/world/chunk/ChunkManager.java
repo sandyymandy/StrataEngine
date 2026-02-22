@@ -141,13 +141,46 @@ public class ChunkManager {
         int cx = (int) Math.floor(centerX / SubChunk.SIZE);
         int cz = (int) Math.floor(centerZ / SubChunk.SIZE);
 
-        for (int dx = -renderDistance; dx <= renderDistance; dx++) {
-            for (int dz = -renderDistance; dz <= renderDistance; dz++) {
-                if (dx * dx + dz * dz <= renderDistance * renderDistance) {
-                    chunks.add(new ChunkPos(cx + dx, cz + dz));
+        // Generate chunks in a spiral pattern radiating outward from player
+        // This creates a more natural loading experience starting from center
+        chunks.add(new ChunkPos(cx, cz)); // Add center chunk first
+
+        for (int radius = 1; radius <= renderDistance; radius++) {
+            // Walk around the perimeter of each "ring" at this radius
+
+            // Top edge (left to right)
+            for (int x = -radius; x <= radius; x++) {
+                int distSq = x * x + radius * radius;
+                if (distSq <= renderDistance * renderDistance) {
+                    chunks.add(new ChunkPos(cx + x, cz - radius));
+                }
+            }
+
+            // Right edge (top to bottom, skip corners)
+            for (int z = -radius + 1; z <= radius - 1; z++) {
+                int distSq = radius * radius + z * z;
+                if (distSq <= renderDistance * renderDistance) {
+                    chunks.add(new ChunkPos(cx + radius, cz + z));
+                }
+            }
+
+            // Bottom edge (right to left)
+            for (int x = radius; x >= -radius; x--) {
+                int distSq = x * x + radius * radius;
+                if (distSq <= renderDistance * renderDistance) {
+                    chunks.add(new ChunkPos(cx + x, cz + radius));
+                }
+            }
+
+            // Left edge (bottom to top, skip corners)
+            for (int z = radius - 1; z >= -radius + 1; z--) {
+                int distSq = radius * radius + z * z;
+                if (distSq <= renderDistance * renderDistance) {
+                    chunks.add(new ChunkPos(cx - radius, cz + z));
                 }
             }
         }
+
         return chunks;
     }
 

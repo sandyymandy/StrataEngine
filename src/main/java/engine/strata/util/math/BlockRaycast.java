@@ -133,7 +133,7 @@ public class BlockRaycast {
         while (distance < maxDistance) {
             // Check current block
             BlockPos currentPos = new BlockPos(blockX, blockY, blockZ);
-            short block = world.getBlock(currentPos);
+            short block = world.getBlockId(currentPos);
 
             if (block != 0) { // Hit a non-air block
                 // Calculate exact hit position

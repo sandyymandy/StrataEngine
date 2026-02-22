@@ -107,6 +107,10 @@ public final class Identifier{
         }
     }
 
+    public String getNamespace() { return namespace; }
+
+    public String getPath() { return path; }
+
 
     @Override
     public boolean equals(Object o) {

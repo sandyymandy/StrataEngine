@@ -7,7 +7,6 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 public class EntrypointManager {
-    // Key is the entrypoint type (e.g., "common"), Value is the list of ALL mod instances for that type
     private static final Map<String, List<Object>> ENTRYPOINTS = new HashMap<>();
 
     /**

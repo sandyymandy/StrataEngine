@@ -1,9 +1,8 @@
 package engine.strata;
 
-import engine.strata.api.ClientModInitializer;
+import engine.strata.api.ClientInitializer;
 import engine.strata.api.ModInitializer;
 import engine.strata.api.mod.ModLoader;
-import engine.strata.client.StrataClient;
 import engine.strata.core.entrypoint.EntrypointManager;
 import engine.strata.core.io.FolderManager;
 import engine.strata.server.StrataServer;
@@ -45,7 +44,7 @@ public class StrataLauncher {
             launchServer();
         } else {
             // 3. Initialize Client Logic
-            EntrypointManager.invoke("client", ClientModInitializer.class, ClientModInitializer::onClientInitialize);
+            EntrypointManager.invoke("client", ClientInitializer.class, ClientInitializer::onClientInitialize);
         }
     }
 

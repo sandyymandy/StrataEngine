@@ -16,18 +16,18 @@ public class Registries {
     // Entity registries
     public static final Registry<EntityKey<?>> ENTITY_KEY = new Registry<>();
 
-    // Block registries
+    // Block system
+
+    /**
+     * Registry of block instances.
+     * Each block is registered with its identifier.
+     */
     public static final Registry<Block> BLOCK = new Registry<>();
 
-    // Numeric ID mapping for blocks (used in chunks)
-    // This allows efficient storage while keeping the registry system
+    /**
+     * Numeric ID mapping for blocks (used in chunks).
+     * This allows efficient storage while keeping the registry system.
+     */
     public static final ConcurrentHashMap<Short, Block> BLOCK_BY_ID = new ConcurrentHashMap<>();
     public static final AtomicInteger BLOCK_ID_COUNTER = new AtomicInteger(0);
-
-    // Item registries
-    public static final Registry<Item> ITEM = new Registry<>();
-
-    // Numeric ID mapping for items (used in inventories and network)
-    public static final ConcurrentHashMap<Short, Item> ITEM_BY_ID = new ConcurrentHashMap<>();
-    public static final AtomicInteger ITEM_ID_COUNTER = new AtomicInteger(0);
 }

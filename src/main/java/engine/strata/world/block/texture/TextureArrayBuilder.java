@@ -1,8 +1,11 @@
-package engine.strata.world.block;
+package engine.strata.world.block.texture;
 
 import engine.helios.rendering.texture.TextureArray;
 import engine.strata.core.io.ResourceManager;
 import engine.strata.util.Identifier;
+import engine.strata.world.block.Block;
+import engine.strata.world.block.model.BlockModel;
+import engine.strata.world.block.model.BlockModelLoader;
 import org.lwjgl.BufferUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,13 +18,12 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.List;
 
-import static org.lwjgl.opengl.GL11.*;
-import static org.lwjgl.opengl.GL12.*;
-import static org.lwjgl.opengl.GL30.*;
-
 /**
  * Builds a GL_TEXTURE_2D_ARRAY from texture identifiers using Helios TextureArray.
- *
+ * <p>
+ * Collects textures from BlockModel definitions, ensuring all textures referenced
+ * by models are included in the texture array.
+ * <p>
  * Each unique texture becomes one layer of the array. All layers share the
  * same width × height (tileSize × tileSize). Because layers are independent
  * slices there is zero bleed between textures — no border padding is needed
@@ -30,24 +32,42 @@ import static org.lwjgl.opengl.GL30.*;
 public class TextureArrayBuilder {
     private static final Logger LOGGER = LoggerFactory.getLogger("TextureArrayBuilder");
 
-    private static final int DEFAULT_TILE_SIZE = 16;
+    private static final int DEFAULT_TILE_SIZE = 32;
     private static final String MISSING_TEXTURE_PATH = "missing";
 
     // ── Public entry points ───────────────────────────────────────────────────
 
     /**
-     * Scans all registered blocks and builds a texture array containing every
-     * unique texture identifier found.
+     * Scans all registered blocks, loads their models, and builds a texture array
+     * containing every unique texture identifier found in the models.
      */
-    public static DynamicTextureArray buildArrayFromBlocks(Collection<Block> blocks, int tileSize) {
-        LOGGER.info("Building texture array from {} blocks", blocks.size());
+    public static DynamicTextureArray buildArrayFromBlocks(Collection<Block> blocks,
+                                                           BlockModelLoader modelLoader,
+                                                           int tileSize) {
+        LOGGER.info("Building texture array from {} blocks using BlockModel system", blocks.size());
 
-        Set<Identifier> ids = collectTextureIds(blocks);
+        Set<Identifier> ids = collectTextureIdsFromModels(blocks, modelLoader);
         ids.add(Identifier.ofEngine(MISSING_TEXTURE_PATH)); // layer 0 = missing
 
-        LOGGER.info("Collected {} unique texture identifiers", ids.size());
+        LOGGER.info("Collected {} unique texture identifiers from BlockModels", ids.size());
         return buildArray(ids, tileSize);
     }
+
+    /**
+     * Legacy method for backward compatibility with old BlockTexture system.
+     * Use buildArrayFromBlocks(blocks, modelLoader, tileSize) instead.
+     */
+//    @Deprecated
+//    public static DynamicTextureArray buildArrayFromBlocks(Collection<Block> blocks, int tileSize) {
+//        LOGGER.warn("Using deprecated buildArrayFromBlocks without BlockModelLoader");
+//        LOGGER.warn("Falling back to old texture collection system");
+//
+//        Set<Identifier> ids = collectTextureIdsLegacy(blocks);
+//        ids.add(Identifier.ofEngine(MISSING_TEXTURE_PATH));
+//
+//        LOGGER.info("Collected {} unique texture identifiers (legacy mode)", ids.size());
+//        return buildArray(ids, tileSize);
+//    }
 
     /**
      * Builds a texture array from an explicit set of texture identifiers.
@@ -88,23 +108,86 @@ public class TextureArrayBuilder {
 
     // ── Internal helpers ──────────────────────────────────────────────────────
 
-    /** Collects every Identifier-based texture reference from the block registry. */
-    private static Set<Identifier> collectTextureIds(Collection<Block> blocks) {
+    /**
+     * Collects every texture identifier from BlockModels.
+     * Loads each block's model and extracts all resolved texture identifiers.
+     */
+    private static Set<Identifier> collectTextureIdsFromModels(Collection<Block> blocks,
+                                                               BlockModelLoader modelLoader) {
         Set<Identifier> ids = new HashSet<>();
+
         for (Block block : blocks) {
             if (block.isAir()) continue;
-            BlockTexture tex = block.getTexture();
-            if (tex == null) continue;
-            for (BlockTexture.Face face : BlockTexture.Face.values()) {
-                Identifier id = tex.getTextureIdForFace(face);
-                if (id != null) {
-                    ids.add(id);
-                    LOGGER.debug("Block {} face {} → {}", block.getId(), face, id);
+
+            try {
+                // Load and resolve the block's model
+                Identifier modelId = block.getModelId();
+                if (modelId == null) {
+                    LOGGER.warn("Block {} has no model ID", block.getId());
+                    continue;
+                }
+
+                BlockModel model = modelLoader.loadModel(modelId);
+                if (model == null) {
+                    LOGGER.warn("Failed to load model {} for block {}", modelId, block.getId());
+                    continue;
+                }
+
+                // Extract all textures from the model
+                extractTexturesFromModel(model, ids);
+
+            } catch (Exception e) {
+                LOGGER.error("Error collecting textures from block {}", block.getId(), e);
+            }
+        }
+
+        return ids;
+    }
+
+    /**
+     * Extracts all texture identifiers from a resolved BlockModel.
+     */
+    private static void extractTexturesFromModel(BlockModel model, Set<Identifier> ids) {
+        // Get textures from the model's texture map
+        Map<String, Identifier> textures = model.getTextures();
+        if (textures != null) {
+            ids.addAll(textures.values());
+        }
+
+        // Also extract textures from face data in case some are only in faces
+        for (BlockModel.Element element : model.getElements()) {
+            for (Map.Entry<BlockModel.Face, BlockModel.FaceData> entry : element.getFaces().entrySet()) {
+                BlockModel.FaceData faceData = entry.getValue();
+                Identifier texture = faceData.getTexture();
+                if (texture != null) {
+                    ids.add(texture);
+                    LOGGER.debug("Model {} face {} → {}", model.getId(), entry.getKey(), texture);
                 }
             }
         }
-        return ids;
     }
+//
+//    /**
+//     * Legacy texture collection from old BlockTexture system.
+//     * Used as fallback when BlockModelLoader is not available.
+//     */
+//    @Deprecated
+//    private static Set<Identifier> collectTextureIdsLegacy(Collection<Block> blocks) {
+//        Set<Identifier> ids = new HashSet<>();
+//        for (Block block : blocks) {
+//            if (block.isAir()) continue;
+//            BlockTexture tex = block.getTexture();
+//            if (tex == null) continue;
+//            for (BlockTexture.Face face : BlockTexture.Face.values()) {
+//                Identifier id = tex.getTextureIdForFace(face);
+//                if (id != null) {
+//                    ids.add(id);
+//                    LOGGER.debug("Block {} face {} → {}", block.getId(), face, id);
+//                }
+//            }
+//        }
+//        return ids;
+//    }
 
     /**
      * Writes a tileSize×tileSize RGBA image into the provided ByteBuffer.
@@ -121,45 +204,15 @@ public class TextureArrayBuilder {
     }
 
     /**
-     * Uploads the flat buffer of layer data to a GL_TEXTURE_2D_ARRAY through Helios
-     * and configures filtering suitable for pixel-art block textures.
+     * Creates a texture array through Helios from the prepared data buffer.
      */
     private static TextureArray uploadToGPU(ByteBuffer data, int tileSize, int layerCount) {
-        int id = glGenTextures();
-        glBindTexture(GL_TEXTURE_2D_ARRAY, id);
+        TextureArray textureArray = TextureArray.create(data, tileSize, tileSize, layerCount);
 
-        // Allocate storage for all layers
-        glTexImage3D(
-                GL_TEXTURE_2D_ARRAY,
-                0,                  // mip level 0
-                GL_RGBA8,           // internal format
-                tileSize,           // width
-                tileSize,           // height
-                layerCount,         // depth = number of layers
-                0,                  // border (must be 0)
-                GL_RGBA,            // format of supplied data
-                GL_UNSIGNED_BYTE,
-                data
-        );
+        LOGGER.info("Created texture array through Helios (id={}, {}x{}, {} layers)",
+                textureArray.getId(), tileSize, tileSize, layerCount);
 
-        // Generate mipmaps
-        glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
-
-        // Set filtering for pixel-art
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-        // Clamp all axes
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-
-        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-
-        LOGGER.info("Uploaded texture array to GPU (id={}, {}x{}, {} layers)",
-                id, tileSize, tileSize, layerCount);
-
-        return new TextureArray(id, tileSize, tileSize, layerCount);
+        return textureArray;
     }
 
     // ── Texture loading ───────────────────────────────────────────────────────
@@ -169,24 +222,44 @@ public class TextureArrayBuilder {
             return createMissingTexture(size);
         }
 
+        // Try "block/" prefix first (standard for block textures)
+        try (InputStream stream = ResourceManager.getResourceStream(id, "textures/block", "png")) {
+            if (stream != null) {
+                BufferedImage img = ImageIO.read(stream);
+                if (img != null) {
+                    return processLoadedImage(img, size, id);
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.debug("Failed to load texture {} from textures/block: {}", id, e.getMessage());
+        }
+
+        // Fallback to "blocks/" prefix (legacy)
         try (InputStream stream = ResourceManager.getResourceStream(id, "textures/blocks", "png")) {
             if (stream != null) {
                 BufferedImage img = ImageIO.read(stream);
                 if (img != null) {
-                    if (img.getWidth() != size || img.getHeight() != size) {
-                        LOGGER.debug("Resizing {} from {}x{} to {}x{}",
-                                id, img.getWidth(), img.getHeight(), size, size);
-                        return resizeImage(img, size);
-                    }
-                    return ensureARGB(img);
+                    return processLoadedImage(img, size, id);
                 }
             }
         } catch (Exception e) {
-            LOGGER.warn("Failed to load texture {}: {}", id, e.getMessage());
+            LOGGER.debug("Failed to load texture {} from textures/blocks: {}", id, e.getMessage());
         }
 
         LOGGER.warn("Texture not found: {} – using missing texture placeholder", id);
         return createMissingTexture(size);
+    }
+
+    /**
+     * Processes a loaded image: resize if needed and ensure ARGB format.
+     */
+    private static BufferedImage processLoadedImage(BufferedImage img, int size, Identifier id) {
+        if (img.getWidth() != size || img.getHeight() != size) {
+            LOGGER.debug("Resizing {} from {}x{} to {}x{}",
+                    id, img.getWidth(), img.getHeight(), size, size);
+            return resizeImage(img, size);
+        }
+        return ensureARGB(img);
     }
 
     /** Magenta/black checkerboard — immediately recognisable as missing. */
@@ -235,6 +308,7 @@ public class TextureArrayBuilder {
     public static class Builder {
         private final Set<Identifier> ids = new HashSet<>();
         private int tileSize = DEFAULT_TILE_SIZE;
+        private BlockModelLoader modelLoader;
 
         public Builder addTexture(Identifier id) {
             ids.add(id);
@@ -246,8 +320,25 @@ public class TextureArrayBuilder {
             return this;
         }
 
-        public Builder addTexturesFromBlocks(Collection<Block> blks) {
-            ids.addAll(collectTextureIds(blks));
+        /**
+         * Adds textures from blocks using BlockModel system.
+         * Requires modelLoader to be set first.
+         */
+        public Builder addTexturesFromBlocks(Collection<Block> blocks) {
+//            if (modelLoader != null) {
+                ids.addAll(collectTextureIdsFromModels(blocks, modelLoader));
+//            } else {
+//                LOGGER.warn("BlockModelLoader not set, using legacy texture collection");
+//                ids.addAll(collectTextureIdsLegacy(blocks));
+//            }
+            return this;
+        }
+
+        /**
+         * Sets the BlockModelLoader for collecting textures from models.
+         */
+        public Builder modelLoader(BlockModelLoader loader) {
+            this.modelLoader = loader;
             return this;
         }
 

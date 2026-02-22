@@ -25,4 +25,6 @@ public class Registry<T> {
     public Collection<T> values() {
         return entries.values();
     }
+
+    public int size() { return entries.size(); }
 }

@@ -22,11 +22,6 @@ public class Camera {
     private Entity focusedEntity;
     private float cameraY;
     private float lastCameraY;
-    private float speed;
-    private float normalSpeed = 0.25f;
-    private float slowSpeed = 0.05f;
-    private float fastSpeed = 1f;
-    private float fastSpeedPlus = 5f;
     private boolean firstMouse = true;
     private double lastMouseX, lastMouseY;
     private float sensitivity = 0.15f;
@@ -78,7 +73,8 @@ public class Camera {
     }
 
     public void tick() {
-        updateMovement(focusedEntity);
+        // Camera tick - mouse handling is done in update() method
+        // Movement is now handled by PlayerEntity using rigid body physics
     }
 
     public void handleMouse(Entity entity) {
@@ -103,49 +99,6 @@ public class Camera {
 
         if (entity.getHeadPitch() > 89.0f) entity.setHeadPitch(89.0f);
         if (entity.getHeadPitch() < -89.0f) entity.setHeadPitch(-89.0f);
-    }
-
-    public void updateMovement(Entity entity) {
-        if(entity == null) return;
-        // Calculate direction based on YAW
-        float radYaw = (float) Math.toRadians(entity.getHeadYaw());
-        float sin = (float) Math.sin(radYaw);
-        float cos = (float) Math.cos(radYaw);
-
-        speed = normalSpeed;
-
-        if(Keybinds.FAST_PLUS.isPressedFrame()) {
-            speed = fastSpeedPlus;
-        }
-        else if (Keybinds.SLOW.isPressedFrame()) {
-            speed = slowSpeed;
-        }
-        else if(Keybinds.FAST.isPressedFrame()) {
-            speed = fastSpeed;
-        }
-
-        if (Keybinds.BACKWARDS.isPressedFrame()) {
-            entity.getPosition().setX(entity.getPosition().getX() - sin * speed);
-            entity.getPosition().setZ(entity.getPosition().getZ() + cos * speed);
-        }
-        if (Keybinds.FORWARDS.isPressedFrame()) {
-            entity.getPosition().setX(entity.getPosition().getX() + sin * speed);
-            entity.getPosition().setZ(entity.getPosition().getZ() - cos * speed);
-        }
-        if (Keybinds.RIGHT.isPressedFrame()) {
-            entity.getPosition().setX(entity.getPosition().getX() + cos * speed);
-            entity.getPosition().setZ(entity.getPosition().getZ() + sin * speed);
-        }
-        if (Keybinds.LEFT.isPressedFrame()) {
-            entity.getPosition().setX(entity.getPosition().getX() - cos * speed);
-            entity.getPosition().setZ(entity.getPosition().getZ() - sin * speed);
-        }
-        if (Keybinds.UP.isPressedFrame()) {
-            entity.getPosition().setY(entity.getPosition().getY() + speed);
-        }
-        if (Keybinds.DOWN.isPressedFrame()) {
-            entity.getPosition().setY(entity.getPosition().getY() - speed);
-        }
     }
 
     public void updateEyeHeight() {

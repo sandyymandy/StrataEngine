@@ -1,6 +1,6 @@
 package engine.strata.client;
 
-import engine.strata.api.ClientModInitializer;
+import engine.strata.api.ClientInitializer;
 import engine.strata.client.backend.ClientBackEnd;
 import engine.strata.client.frontend.ClientFrontEnd;
 import engine.strata.client.frontend.window.Window;
@@ -16,7 +16,7 @@ import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class StrataClient implements ClientModInitializer {
+public class StrataClient implements ClientInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("Client");
     private static StrataClient instance;
     private final Window window;

@@ -53,8 +53,18 @@ public class Keybinds {
             GLFW.GLFW_KEY_Q
     );
 
-    public static final Keybind SLOW = new Keybind(
-            Identifier.of("strata", "slow"),
+    public static final Keybind JUMP = new Keybind(
+            Identifier.of("strata", "jump"),
+            GLFW.GLFW_KEY_SPACE
+    );
+
+    public static final Keybind CRAWL = new Keybind(
+            Identifier.of("strata", "crawl"),
+            GLFW.GLFW_KEY_C
+    );
+
+    public static final Keybind CROUCH = new Keybind(
+            Identifier.of("strata", "crouch"),
             GLFW.GLFW_KEY_LEFT_CONTROL
     );
 
@@ -69,8 +79,13 @@ public class Keybinds {
     );
 
     public static final Keybind DEBUG_PLACE = new Keybind(
-            Identifier.of("strata", "place"),
+            Identifier.of("strata", "debug_place"),
             GLFW.GLFW_KEY_P
+    );
+
+    public static final Keybind INTERACT = new Keybind(
+            Identifier.of("strata", "interact"),
+            GLFW.GLFW_KEY_E
     );
 
     public static final Keybind PLACE = new Keybind(

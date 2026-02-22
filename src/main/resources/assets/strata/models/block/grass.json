@@ -1,0 +1,8 @@
+{
+  "parent": "strata:cube_bottom_top",
+  "textures": {
+    "top": "strata:grass",
+    "bottom": "strata:dirt",
+    "side": "strata:grass_side"
+  }
+}

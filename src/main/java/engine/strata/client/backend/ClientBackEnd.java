@@ -1,10 +1,13 @@
 package engine.strata.client.backend;
 
+import engine.strata.api.ClientBackEndInitializer;
+import engine.strata.api.ClientInitializer;
 import engine.strata.client.StrataClient;
 import engine.strata.client.input.InputSystem;
 import engine.strata.client.input.keybind.Keybinds;
 import engine.strata.client.render.snapshot.EntityRenderSnapshot;
 import engine.strata.client.render.snapshot.EntitySnapshotPool;
+import engine.strata.core.entrypoint.EntrypointManager;
 import engine.strata.entity.Entity;
 import engine.strata.entity.entities.BiaEntity;
 import engine.strata.entity.entities.PlayerEntity;
@@ -32,12 +35,14 @@ public class ClientBackEnd implements Runnable {
     private volatile float latestPartialTicks;
 
     public ClientBackEnd() {
+        EntrypointManager.invoke("client_back_end", ClientBackEndInitializer.class,
+                ClientBackEndInitializer::onBackEndInitialize);
         StrataClient.getInstance().getEventBus().subscribe(KeyEvent.class, inputSystem::handleKeyEvent);
         StrataClient.getInstance().getEventBus().subscribe(MouseEvent.class, inputSystem::handleMouseEvent);
         StrataClient.getInstance().getEventBus().subscribe(MouseScrollEvent.class, inputSystem::handleScrollEvent);
         this.world = new World("TestWorld", System.currentTimeMillis());
         this.player = EntityRegistry.PLAYER.create(world);
-        this.player.setPosition(0,120,0);
+        this.player.setPosition(0,200,0);
         world.addEntity(player);
         spawnTestEntities();
 
@@ -68,15 +73,19 @@ public class ClientBackEnd implements Runnable {
             lastTime = now;
 
             processInput();
-
+            boolean ticked = false;
             while (accumulator >= TIME_PER_TICK) {
                 tick();
                 accumulator -= TIME_PER_TICK;
+                ticked = true;
             }
 
-            // Capture the state for the Frontend (Snapshot Phase)
-            float partialTicks = (float) (accumulator / 0.05);
-            captureFrameState(partialTicks);
+            float partialTicks = (float) (accumulator / TIME_PER_TICK);
+            if (ticked) {
+                captureFrameState(partialTicks);
+            }
+
+            this.latestPartialTicks = partialTicks;
 
         }
     }
@@ -103,8 +112,6 @@ public class ClientBackEnd implements Runnable {
         for (Entity entity : world.getEntities()) {
             snapshotPool.updateSnapshot(entity, partialTicks);
         }
-
-        this.latestPartialTicks = partialTicks;
     }
 
     public Map<Integer, EntityRenderSnapshot> getLatestEntitySnapshots() { return snapshotPool.getAllSnapshots(); }

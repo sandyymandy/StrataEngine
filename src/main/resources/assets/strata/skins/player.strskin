@@ -3,7 +3,7 @@
   "format_version": 3,
   "textures": {
     "steve.png": {
-      "path": "strata:entity/steve",
+      "path": "strata:entities/steve",
       "width": 64,
       "height": 64,
       "translucent": true,

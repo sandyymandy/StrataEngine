@@ -5,115 +5,118 @@ import engine.strata.registry.registries.Registries;
 import engine.strata.util.Identifier;
 
 /**
- * Registry of all block types in the game.
+ * Central registry of all built-in block types.
  *
- * TEXTURE SYSTEM:
- * This file demonstrates two approaches to block textures:
+ * <h3>How registration works</h3>
+ * Calling {@link #register} assigns a numeric ID and stores the block in the
+ * global block registry.  Visual appearance (geometry + textures) is driven
+ * entirely by the block's associated JSON model, resolved at render time by
+ * {@link engine.strata.world.block.model.BlockModelLoader}.
  *
- * 1. INDEX-BASED (for pre-built texture atlases):
- *    - Use numeric indices (0, 1, 2...) to reference atlas positions
- *    - Requires a pre-made atlas texture with known layout
- *    - Example: new BlockTexture(1) or new BlockTexture(3, 2, 2)
+ * <h3>Model resolution</h3>
+ * By convention a block registered as {@code strata:stone} will load
+ * {@code assets/strata/models/block/stone.json} automatically — you don't
+ * need to do anything extra.  To override this (e.g. share a model between
+ * two blocks) use {@link #register(String, Block.BlockProperties, String)}.
  *
- * 2. IDENTIFIER-BASED (for dynamic texture atlases):
- *    - Use Identifier objects to reference texture files
- *    - Textures are loaded from /assets/{namespace}/textures/blocks/{path}.png
- *    - Atlas is built automatically at runtime
- *    - Example: new BlockTexture(Identifier.ofEngine("stone"))
- *
- * You can mix both approaches - the system will resolve them at runtime.
+ * <h3>Adding new blocks</h3>
+ * <ol>
+ *   <li>Add a {@code public static final Block} field here.</li>
+ *   <li>Create {@code assets/strata/models/block/{id}.json} that declares the
+ *       geometry and texture variables.</li>
+ *   <li>Create the texture PNG at
+ *       {@code assets/strata/textures/block/{texture}.png}.</li>
+ * </ol>
  */
 public class Blocks {
 
-    // ========================================================================
-    // BASIC BLOCKS - Using identifier-based textures (recommended)
-    // ========================================================================
+    // ── Built-in blocks ───────────────────────────────────────────────────────
 
-    // Air block (empty space) - no texture needed
     public static final Block AIR = register("air",
             Block.BlockProperties.builder()
-                    .solid(false)
-                    .opaque(false)
+                    .transparent(false)
+                    .fullBlock(false)
                     .collidable(false)
                     .hardness(0)
-                    .build(),
-            new BlockTexture(0) // Doesn't matter, won't be rendered
+                    .build()
     );
 
-    // Stone - single texture on all faces
     public static final Block STONE = register("stone",
             Block.BlockProperties.builder()
                     .hardness(1.5f)
-                    .build(),
-            new BlockTexture(Identifier.ofEngine("stone"))
+                    .build()
     );
 
-    // Dirt - single texture on all faces
     public static final Block DIRT = register("dirt",
             Block.BlockProperties.builder()
                     .hardness(0.5f)
-                    .build(),
-            new BlockTexture(Identifier.ofEngine("dirt"))
+                    .build()
     );
 
-    // Grass - different textures for top/sides/bottom (using identifiers)
+
     public static final Block GRASS = register("grass",
             Block.BlockProperties.builder()
                     .hardness(0.6f)
-                    .build(),
-            new BlockTexture(
-                    Identifier.ofEngine("grass"),
-                    Identifier.ofEngine("grass_side"),
-                    Identifier.ofEngine("dirt")
-            )
+                    .build()
     );
 
+    public static final Block SIGN = register("sign",
+            Block.BlockProperties.builder().transparent(true).fullBlock(false).build());
+
+    // ── Registration helpers ──────────────────────────────────────────────────
+
     /**
-     * Internal helper to register blocks with automatic numeric ID assignment.
+     * Registers a block whose model ID matches its block ID (the common case).
      */
-    private static Block register(String id, Block.BlockProperties properties, BlockTexture texture) {
-        return register(Identifier.ofEngine(id), properties, texture);
+    private static Block register(String id, Block.BlockProperties properties) {
+        return register(Identifier.ofEngine(id), properties, null);
     }
 
     /**
-     * Registers a block with a custom identifier (for mod support).
+     * Registers a block with an explicit model ID override.
+     *
+     * @param id         block identifier path, e.g. {@code "mossy_cobblestone"}
+     * @param properties physical behaviour
+     * @param modelPath  model path override, e.g. {@code "cobblestone"} to reuse
+     *                   an existing model; pass {@code null} to use the block ID
      */
-    private static Block register(Identifier identifier, Block.BlockProperties properties, BlockTexture texture) {
-        Block block = new Block(identifier, properties, texture);
+    private static Block register(String id, Block.BlockProperties properties, String modelPath) {
+        Identifier blockId = Identifier.ofEngine(id);
+        Identifier modelId = (modelPath != null) ? Identifier.ofEngine(modelPath) : null;
+        return register(blockId, properties, modelId);
+    }
 
-        // Register in the main registry
-        Block registered = Registry.register(Registries.BLOCK, identifier, block);
+    /**
+     * Core registration — assigns a numeric ID and stores the block in both
+     * the named registry and the numeric lookup map.
+     */
+    private static Block register(Identifier id, Block.BlockProperties properties, Identifier modelId) {
+        Block block = new Block(id, properties, modelId);
 
-        // Assign numeric ID for chunk storage
+        Block registered = Registry.register(Registries.BLOCK, id, block);
+
         short numericId = (short) Registries.BLOCK_ID_COUNTER.getAndIncrement();
         registered.setNumericId(numericId);
-
-        // Store in numeric ID lookup
         Registries.BLOCK_BY_ID.put(numericId, registered);
 
         return registered;
     }
 
-    /**
-     * Gets a block by its identifier.
-     */
+    // ── Lookups ───────────────────────────────────────────────────────────────
+
+    /** Returns the block with the given identifier, or {@link #AIR} if not found. */
     public static Block get(Identifier id) {
         Block block = Registries.BLOCK.get(id);
         return block != null ? block : AIR;
     }
 
-    /**
-     * Gets a block by its numeric ID (for chunk storage).
-     */
+    /** Returns the block with the given numeric ID, or {@link #AIR} if not found. */
     public static Block getByNumericId(short id) {
         Block block = Registries.BLOCK_BY_ID.get(id);
         return block != null ? block : AIR;
     }
 
-    /**
-     * Gets all registered blocks.
-     * Useful for building texture atlases.
-     */
+    /** Returns all registered blocks. Useful for building texture arrays. */
     public static java.util.Collection<Block> getAllBlocks() {
         return Registries.BLOCK.values();
     }

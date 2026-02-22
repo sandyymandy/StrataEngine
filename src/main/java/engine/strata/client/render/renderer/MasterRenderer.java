@@ -22,10 +22,14 @@ import engine.strata.entity.entities.PlayerEntity;
 import engine.strata.entity.util.EntityKey;
 import engine.strata.util.Identifier;
 import engine.strata.world.World;
+import engine.strata.util.math.BlockPos;
 import engine.strata.util.math.BlockRaycast;
+import engine.strata.world.block.Block;
 import engine.strata.world.block.Blocks;
-import engine.strata.world.block.DynamicTextureArray;
-import engine.strata.world.block.TextureArrayManager;
+import engine.strata.world.block.model.BlockModel;
+import engine.strata.world.block.model.BlockModelLoader;
+import engine.strata.world.block.texture.DynamicTextureArray;
+import engine.strata.world.block.texture.TextureArrayManager;
 import engine.strata.world.chunk.render.ChunkMeshBuilder;
 import engine.strata.world.chunk.render.ChunkRenderer;
 import org.slf4j.Logger;
@@ -36,6 +40,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static engine.strata.util.math.Math.fLerp;
 import static engine.strata.util.math.Math.lerp;
 
 /**
@@ -45,10 +50,7 @@ import static engine.strata.util.math.Math.lerp;
 public class MasterRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger("MasterRenderer");
 
-    // Optimal buffer size: 4MB per layer (handles ~20-30 entities before flush)
     private static final int BUFFER_SIZE = 4 * 1024 * 1024;
-
-    // Flush when buffer reaches 90% capacity
     private static final float FLUSH_THRESHOLD = 0.90f;
 
     private final StrataClient client;
@@ -59,10 +61,12 @@ public class MasterRenderer {
     private final BlockOutlineRenderer blockOutlineRenderer;
     private final EntityRenderDispatcher entityRenderDispatcher;
 
+    /** Shared model loader — used for block outline lookups and anything else that needs models. */
+    private final BlockModelLoader blockModelLoader;
+
     // Chunk rendering
     private ChunkRenderer chunkRenderer;
 
-    // Entity render distance
     private static final float ENTITY_RENDER_DISTANCE = 120.0f;
 
     private boolean chunkRendererInitialized = false;
@@ -79,7 +83,6 @@ public class MasterRenderer {
     private int entitiesRendered = 0;
     private int entitiesCulled = 0;
 
-    // Debug flags
     private final DisplayDebugInfo debug;
 
     public MasterRenderer(StrataClient client, Camera camera, DisplayDebugInfo debug) {
@@ -91,18 +94,19 @@ public class MasterRenderer {
         this.entityRenderDispatcher = new EntityRenderDispatcher();
         this.debug = debug;
         this.blockOutlineRenderer = new BlockOutlineRenderer();
+        this.blockModelLoader = new BlockModelLoader();
 
         LOGGER.info("MasterRenderer created (ChunkRenderer will initialize when world is ready)");
     }
 
+    // ── Initialization ────────────────────────────────────────────────────────
+
     /**
-     * Initializes chunk renderer after world is created.
-     * Call this after the world is set up.
+     * Initializes the chunk renderer once the world is available.
+     * Safe to call multiple times — subsequent calls are no-ops.
      */
     public void initChunkRenderer(World world) {
-        if (chunkRendererInitialized) {
-            return;
-        }
+        if (chunkRendererInitialized) return;
 
         Identifier atlasId = Identifier.ofEngine("blocks/atlas");
 
@@ -113,7 +117,6 @@ public class MasterRenderer {
         TextureManager.register(atlasId, atlasTexture);
 
         ChunkMeshBuilder chunkMeshBuilder = world.initializeChunkMesher(atlas);
-
         world.startChunkThreads(chunkMeshBuilder);
 
         this.chunkRenderer = new ChunkRenderer(
@@ -123,121 +126,116 @@ public class MasterRenderer {
                 atlasId
         );
 
-        this.chunkRendererInitialized = true;
+        chunkRendererInitialized = true;
         LOGGER.info("ChunkRenderer initialized");
     }
 
+    // ── Main render entry point ───────────────────────────────────────────────
 
-    public void render(Map<Integer, EntityRenderSnapshot> snapshots , float partialTicks, float deltaTime) {
+    public void render(Map<Integer, EntityRenderSnapshot> snapshots, float partialTicks, float deltaTime) {
         flushesThisFrame = 0;
         entitiesRendered = 0;
         entitiesCulled = 0;
 
-        // Initialize chunk renderer on first render if world is available
         if (!chunkRendererInitialized && client.getWorld() != null) {
             initChunkRenderer(client.getWorld());
         }
 
-        this.camera.update(client.getPlayer(), client.getWindow(), partialTicks, isInThirdPerson);
+        camera.update(client.getPlayer(), client.getWindow(), partialTicks, isInThirdPerson);
 
-        // 2. Clear screen and prepare for rendering
         preRender(partialTicks, deltaTime);
 
-        // 3. Setup shader and uniforms
-        if (!setupShaderUniforms()) {
-            return; // Shader failed to load
-        }
+        if (!setupShaderUniforms()) return;
 
-        // 4. Render the world (entities, blocks, etc.)
         renderWorld(snapshots, partialTicks, deltaTime);
 
-        // 5. Render UI and overlays
         postRender(partialTicks, deltaTime);
-
     }
 
-    /**
-     * Sets up shader uniforms for the current frame.
-     * @return true if successful, false if shader loading failed
-     */
+    // ── Shader setup ──────────────────────────────────────────────────────────
+
     private boolean setupShaderUniforms() {
         ShaderStack shaderStack = ShaderManager.use(Identifier.ofEngine("generic_3d"));
         if (shaderStack == null) {
             LOGGER.error("Shader not loaded! Check shader files in resources/shaders/");
             return false;
         }
-
         shaderStack.setUniform("u_Projection", camera.getProjectionMatrix());
         shaderStack.setUniform("u_View", camera.getViewMatrix());
-
         return true;
     }
 
-    /**
-     * Main world rendering pass.
-     */
+    // ── World render pass ─────────────────────────────────────────────────────
+
     private void renderWorld(Map<Integer, EntityRenderSnapshot> snapshots, float partialTicks, float deltaTime) {
-        this.client.getWindow().setRenderPhase("Render World");
+        client.getWindow().setRenderPhase("Render World");
 
         clearBuffers();
 
-        // Render chunks
         if (chunkRenderer != null) {
             renderChunks(partialTicks);
-        } else if (client.getWorld() != null) {
-            // World exists but renderer not ready yet
-            if (debug.showRenderDebug()) {
-                LOGGER.warn("ChunkRenderer not initialized yet");
-            }
+        } else if (client.getWorld() != null && debug.showRenderDebug()) {
+            LOGGER.warn("ChunkRenderer not initialized yet");
         }
 
         renderBlockOutline();
-
         renderEntities(snapshots, partialTicks, deltaTime);
 
-        flushBuffers(); // Final flush
+        flushBuffers();
     }
 
+    // ── Block outline ─────────────────────────────────────────────────────────
+
     /**
-     * Renders the wireframe outline around the block the player is targeting.
+     * Resolves the targeted block's model and passes it to the outline renderer
+     * so the wireframe matches the block's actual geometry.
      */
     private void renderBlockOutline() {
         if (!(client.getPlayer() instanceof PlayerEntity player)) return;
 
         BlockRaycast.RaycastResult target = player.getTargetedBlock();
-        if (!target.isHit()) return;
+        if (target == null || !target.isHit()) return;
 
-        blockOutlineRenderer.render(target, camera.getProjectionMatrix(), camera.getViewMatrix());
+        // Look up the block at the targeted position and resolve its model.
+        BlockPos pos = target.getBlockPos();
+        BlockModel model = null;
+        if (pos != null && client.getWorld() != null) {
+            Block block = client.getWorld().getBlock(pos);
+            if (block != null && !block.isAir()) {
+                model = blockModelLoader.loadModel(block.getModelId());
+            }
+        }
+
+        blockOutlineRenderer.render(
+                target,
+                model,
+                camera.getProjectionMatrix(),
+                camera.getViewMatrix()
+        );
     }
 
-    /**
-     * Renders chunks with frustum culling.
-     */
-    private void renderChunks(float partialTicks) {
-        this.client.getWindow().setRenderPhase("Render Chunks");
+    // ── Chunk rendering ───────────────────────────────────────────────────────
 
-        // ChunkRenderer handles all culling and rendering internally
+    private void renderChunks(float partialTicks) {
+        client.getWindow().setRenderPhase("Render Chunks");
+
         chunkRenderer.render();
 
         if (debug.showRenderDebug()) {
             LOGGER.debug("Chunks: {} rendered, {} culled, {} triangles",
                     chunkRenderer.getChunksRendered(),
                     chunkRenderer.getChunksCulled(),
-                    chunkRenderer.getTrianglesRendered()
-            );
+                    chunkRenderer.getTrianglesRendered());
         }
     }
 
-    /**
-     * Renders all entities in the world.
-     */
+    // ── Entity rendering ──────────────────────────────────────────────────────
+
     private void renderEntities(Map<Integer, EntityRenderSnapshot> snapshots, float partialTicks, float deltaTime) {
-        this.client.getWindow().setRenderPhase("Render Entities");
+        client.getWindow().setRenderPhase("Render Entities");
 
         World world = client.getWorld();
-        if (world == null) {
-            return;
-        }
+        if (world == null) return;
 
         Entity cameraEntity = client.getCameraEntity();
 
@@ -245,11 +243,11 @@ public class MasterRenderer {
         float camY = (float) lerp(cameraEntity.prevY, cameraEntity.getPosition().getY(), partialTicks);
         float camZ = (float) lerp(cameraEntity.prevZ, cameraEntity.getPosition().getZ(), partialTicks);
 
-        if(snapshots != null) {
+        if (snapshots != null) {
             for (EntityRenderSnapshot snapshot : snapshots.values()) {
-                // Morph support: if this snapshot is for the player and they're morphed,
-                // use the morph target's renderer instead of the player's own renderer.
                 EntityKey<?> renderKey = snapshot.getEntityKey();
+
+                // Morph support: if the player is morphed, use the morph target's renderer.
                 if (client.getPlayer() instanceof PlayerEntity playerEntity
                         && snapshot.getEntityKey() == client.getPlayer().getKey()
                         && playerEntity.isMorphed()) {
@@ -257,181 +255,111 @@ public class MasterRenderer {
                 }
 
                 EntityRenderer<Entity> renderer = entityRenderDispatcher.getRenderer(renderKey);
+                if (renderer == null) continue;
 
-                if (renderer == null) {
-                    continue;
-                }
-
-                // Interpolate entity position
-                double x = lerp(snapshot.getPrevPosition().getX(), snapshot.getPosition().getX(), partialTicks);
-                double y = lerp(snapshot.getPrevPosition().getY(), snapshot.getPosition().getY(), partialTicks);
-                double z = lerp(snapshot.getPrevPosition().getZ(), snapshot.getPosition().getZ(), partialTicks);
+                float x = fLerp(snapshot.getPrevPosition().getX(), snapshot.getPosition().getX(), partialTicks);
+                float y = fLerp(snapshot.getPrevPosition().getY(), snapshot.getPosition().getY(), partialTicks);
+                float z = fLerp(snapshot.getPrevPosition().getZ(), snapshot.getPosition().getZ(), partialTicks);
 
                 // Distance culling
-                float dx = (float) (x - camX);
-                float dy = (float) (y - camY);
-                float dz = (float) (z - camZ);
-                float distSq = dx * dx + dy * dy + dz * dz;
-
-                if (distSq > ENTITY_RENDER_DISTANCE * ENTITY_RENDER_DISTANCE) {
+                float dx = x - camX, dy = y - camY, dz = z - camZ;
+                if (dx * dx + dy * dy + dz * dz > ENTITY_RENDER_DISTANCE * ENTITY_RENDER_DISTANCE) {
                     entitiesCulled++;
                     continue;
                 }
 
-                // Frustum culling - test entity bounding sphere
-                float entityRadius = snapshot.getEntityKey().getWidth(); // Use entity width as approximate radius
-                if (!camera.isSphereVisible((float) x, (float) y, (float) z, entityRadius)) {
+                // Frustum culling
+                if (!camera.isSphereVisible(x, y, z, snapshot.getEntityKey().getWidth())) {
                     entitiesCulled++;
                     continue;
                 }
 
-                // Entity is visible, prepare to render
                 checkBuffersBeforeRender();
 
                 MatrixStack entityPoseStack = new MatrixStack();
                 entityPoseStack.push();
-
-                // Render the entity
                 renderer.render(snapshot, partialTicks, entityPoseStack);
-
                 entityPoseStack.pop();
+
                 entitiesRendered++;
             }
         }
 
-
         if (debug.showRenderCullingDebug()) {
-            LOGGER.debug("Entity rendering: {} rendered, {} culled",
-                    entitiesRendered, entitiesCulled);
+            LOGGER.debug("Entity rendering: {} rendered, {} culled", entitiesRendered, entitiesCulled);
         }
     }
 
-    /**
-     * Checks all active buffers and flushes any that are nearly full.
-     * This prevents BufferOverflowException while maintaining batching efficiency.
-     */
+    // ── Buffer management ─────────────────────────────────────────────────────
+
     private void checkBuffersBeforeRender() {
         for (Map.Entry<RenderLayer, BufferBuilder> entry : buffers.entrySet()) {
             BufferBuilder buffer = entry.getValue();
+            if (!buffer.isBuilding()) continue;
 
-            if (!buffer.isBuilding()) {
-                continue;
-            }
-
-            float usage = buffer.getUsage();
-
-            if (usage > FLUSH_THRESHOLD) {
-                RenderLayer layer = entry.getKey();
-
-                // Flush this buffer
-                flushSingleBuffer(layer, buffer);
+            if (buffer.getUsage() > FLUSH_THRESHOLD) {
+                flushSingleBuffer(entry.getKey(), buffer);
                 flushesThisFrame++;
-
-                // Start fresh
                 buffer.begin(VertexFormat.POSITION_TEXTURE_COLOR);
             }
         }
     }
 
-    /**
-     * Flushes a single buffer without affecting others.
-     */
     private void flushSingleBuffer(RenderLayer layer, BufferBuilder buffer) {
-        if (!buffer.isBuilding() || buffer.getVertexCount() == 0) {
-            return;
-        }
-
+        if (!buffer.isBuilding() || buffer.getVertexCount() == 0) return;
         layer.setup(camera);
         Tessellator.getInstance().draw(buffer);
         layer.clean();
     }
 
-    public void preRender(float partialTicks, float deltaTime) {
-        this.client.getWindow().setRenderPhase("Pre Render");
-        RenderSystem.clear(0.5f, 0.7f, 0.9f, 1.0f);
-    }
-
-    public void postRender(float partialTicks, float deltaTime) {
-        this.client.getWindow().setRenderPhase("Post Render");
-    }
-
-    /**
-     * Clears all buffers and prepares them for the new frame.
-     */
     private void clearBuffers() {
-        // Reset buffer state for new frame
         for (BufferBuilder builder : buffers.values()) {
-            if (builder.isBuilding()) {
-                // If still building from last frame, finish it
-                builder.end();
-            }
+            if (builder.isBuilding()) builder.end();
             builder.reset();
         }
     }
-    /**
-     * Flushes all accumulated geometry to the GPU.
-     * This is where batched rendering happens.
-     */
+
     private void flushBuffers() {
-        List<Map.Entry<RenderLayer, BufferBuilder>> sortedEntries = new ArrayList<>(buffers.entrySet());
-        sortedEntries.sort((a, b) -> {
-            boolean aTranslucent = a.getKey().isTranslucent();
-            boolean bTranslucent = b.getKey().isTranslucent();
-            if (aTranslucent != bTranslucent) {
-                return aTranslucent ? 1 : -1;
-            }
+        List<Map.Entry<RenderLayer, BufferBuilder>> sorted = new ArrayList<>(buffers.entrySet());
+        sorted.sort((a, b) -> {
+            boolean aT = a.getKey().isTranslucent();
+            boolean bT = b.getKey().isTranslucent();
+            if (aT != bT) return aT ? 1 : -1;
             return 0;
         });
-
-        for (Map.Entry<RenderLayer, BufferBuilder> entry : sortedEntries) {
+        for (Map.Entry<RenderLayer, BufferBuilder> entry : sorted) {
             flushSingleBuffer(entry.getKey(), entry.getValue());
         }
     }
 
-    /**
-     * Gets or creates a buffer for the specified render layer.
-     * Used by entity renderers to accumulate geometry.
-     */
     public BufferBuilder getBuffer(RenderLayer layer) {
         return buffers.computeIfAbsent(layer, l -> {
-            BufferBuilder buffer = new BufferBuilder(BUFFER_SIZE);
             renderOrder.add(l);
-            return buffer;
+            return new BufferBuilder(BUFFER_SIZE);
         });
     }
 
-    // Getters
-    public ModelRenderer getModelRenderer() {
-        return modelRenderer;
+    // ── Pre/post render hooks ─────────────────────────────────────────────────
+
+    public void preRender(float partialTicks, float deltaTime) {
+        client.getWindow().setRenderPhase("Pre Render");
+        RenderSystem.clear(0.5f, 0.7f, 0.9f, 1.0f);
     }
 
-    public EntityRenderDispatcher getEntityRenderDispatcher() {
-        return entityRenderDispatcher;
+    public void postRender(float partialTicks, float deltaTime) {
+        client.getWindow().setRenderPhase("Post Render");
     }
 
-    public Camera getCamera() {
-        return camera;
-    }
-
-    public ChunkRenderer getChunkRenderer() {
-        return chunkRenderer;
-    }
-
-    public void setThirdPerson(boolean thirdPerson) {
-        this.isInThirdPerson = thirdPerson;
-    }
-
-    public boolean isThirdPerson() {
-        return isInThirdPerson;
-    }
+    // ── Reload / cleanup ──────────────────────────────────────────────────────
 
     /**
-     * Reloads all rendering resources.
-     * Call this when resource packs are changed.
+     * Reloads all rendering resources (e.g. after a resource-pack change).
+     * Also clears the block model cache so JSON files are re-read from disk.
      */
     public void reload() {
         ModelManager.clearCache();
         RenderLayers.clearCache();
+        blockModelLoader.clearCache();
 
         if (chunkRenderer != null) {
             chunkRenderer.disposeAll();
@@ -440,12 +368,21 @@ public class MasterRenderer {
         LOGGER.info("Reloaded renderer resources");
     }
 
-    /**
-     * Cleanup method for shutdown.
-     */
     public void cleanup() {
         if (chunkRenderer != null) {
             chunkRenderer.disposeAll();
         }
+        blockOutlineRenderer.dispose();
     }
+
+    // ── Getters ───────────────────────────────────────────────────────────────
+
+    public ModelRenderer getModelRenderer() { return modelRenderer; }
+    public EntityRenderDispatcher getEntityRenderDispatcher() { return entityRenderDispatcher; }
+    public Camera getCamera() { return camera; }
+    public ChunkRenderer getChunkRenderer() { return chunkRenderer; }
+    public BlockModelLoader getBlockModelLoader() { return blockModelLoader; }
+
+    public void setThirdPerson(boolean v) { isInThirdPerson = v; }
+    public boolean isThirdPerson() { return isInThirdPerson; }
 }

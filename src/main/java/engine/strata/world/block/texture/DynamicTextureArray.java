@@ -1,4 +1,4 @@
-package engine.strata.world.block;
+package engine.strata.world.block.texture;
 
 import engine.helios.rendering.texture.TextureArray;
 import engine.strata.util.Identifier;

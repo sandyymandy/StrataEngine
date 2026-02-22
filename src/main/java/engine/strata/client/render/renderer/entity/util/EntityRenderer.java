@@ -43,7 +43,7 @@ public abstract class EntityRenderer<T extends Entity> {
             }
         }
 
-        applyTransforms(snapshot, poseStack);
+        applyTransforms(snapshot, partialTicks, poseStack);
 
         poseStack.push();
 
@@ -59,15 +59,16 @@ public abstract class EntityRenderer<T extends Entity> {
         poseStack.pop();
     }
 
-    private void applyTransforms(EntityRenderSnapshot snapshot, MatrixStack poseStack) {
+    private void applyTransforms(EntityRenderSnapshot snapshot, float partialTicks, MatrixStack poseStack) {
 
-        float x = fLerp(snapshot.getPrevPosition().getX(), snapshot.getPosition().getX(), snapshot.getPartialTicks());
-        float y = fLerp(snapshot.getPrevPosition().getY(), snapshot.getPosition().getY(), snapshot.getPartialTicks());
-        float z = fLerp(snapshot.getPrevPosition().getZ(), snapshot.getPosition().getZ(), snapshot.getPartialTicks());
+        float x = fLerp(snapshot.getPrevPosition().getX(), snapshot.getPosition().getX(), partialTicks);
+        float y = fLerp(snapshot.getPrevPosition().getY(), snapshot.getPosition().getY(), partialTicks);
+        float z = fLerp(snapshot.getPrevPosition().getZ(), snapshot.getPosition().getZ(), partialTicks);
 
-        float xR = fLerp(snapshot.getPrevRotation().getX(), snapshot.getPrevRotation().getX(), snapshot.getPartialTicks());
-        float yR = fLerp(snapshot.getPrevRotation().getY(), snapshot.getPrevRotation().getY(), snapshot.getPartialTicks());
-        float zR = fLerp(snapshot.getPrevRotation().getZ(), snapshot.getPrevRotation().getZ(), snapshot.getPartialTicks());
+        // FIX: Was interpolating prevRotation to prevRotation (copy-paste error)
+        float xR = fLerp(snapshot.getPrevRotation().getX(), snapshot.getRotation().getX(), partialTicks);
+        float yR = fLerp(snapshot.getPrevRotation().getY(), snapshot.getRotation().getY(), partialTicks);
+        float zR = fLerp(snapshot.getPrevRotation().getZ(), snapshot.getRotation().getZ(), partialTicks);
 
         poseStack.translate(x, y, z);
         poseStack.rotateXYZ(xR,yR,zR);

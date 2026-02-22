@@ -1,13 +1,15 @@
 package engine.strata.world;
 
+import engine.helios.physics.PhysicsManager;
 import engine.strata.client.StrataClient;
 import engine.strata.entity.Entity;
 import engine.strata.entity.entities.PlayerEntity;
+import engine.strata.registry.registries.Registries;
 import engine.strata.util.math.BlockPos;
 import engine.strata.util.math.Random;
 import engine.strata.util.math.Vec3d;
 import engine.strata.world.block.Block;
-import engine.strata.world.block.DynamicTextureArray;
+import engine.strata.world.block.texture.DynamicTextureArray;
 import engine.strata.world.chunk.ChunkGenerator;
 import engine.strata.world.chunk.ChunkManager;
 import engine.strata.world.chunk.SubChunk;
@@ -30,6 +32,7 @@ public class World {
     private final ChunkManager chunkManager;
     private final ChunkGenerator chunkGenerator;
     private ChunkMeshBuilder chunkMeshBuilder; // initialized later with atlas
+    private PhysicsManager physicsManager;
 
     private final long seed;
     private final String worldName;
@@ -47,6 +50,8 @@ public class World {
         this.chunkManager = new ChunkManager();
         this.chunkGenerator = new ChunkGenerator(chunkManager, seed);
         this.chunkMeshBuilder = null; // Will be initialized when texture atlas is ready
+
+        this.physicsManager = new PhysicsManager(this);
 
         if(StrataClient.getInstance().getDebugInfo().showWorldDebug())
             LOGGER.info("Creating world '{}' with seed {}", worldName, seed);
@@ -90,6 +95,8 @@ public class World {
                 updateChunksAroundPlayer(entity);
             }
         }
+
+        physicsManager.tick();
     }
 
     /**
@@ -159,10 +166,17 @@ public class World {
     }
 
     /**
+     * Gets a block id at a BlockPos.
+     */
+    public short getBlockId(BlockPos pos) {
+        return chunkManager.getBlock(pos.getX(), pos.getY(), pos.getZ());
+    }
+
+    /**
      * Gets a block at a BlockPos.
      */
-    public short getBlock(BlockPos pos) {
-        return chunkManager.getBlock(pos.getX(), pos.getY(), pos.getZ());
+    public Block getBlock(BlockPos pos) {
+        return Registries.BLOCK_BY_ID.get(chunkManager.getBlock(pos.getX(), pos.getY(), pos.getZ()));
     }
 
     /**
@@ -183,14 +197,14 @@ public class World {
      * Checks if a block position is air.
      */
     public boolean isAir(BlockPos pos) {
-        return getBlock(pos) == 0;
+        return getBlockId(pos) == 0;
     }
 
     /**
      * Gets the block at entity's feet position.
      */
     public short getBlockAtEntity(Entity entity) {
-        return getBlock(new BlockPos(entity.getPosition()));
+        return getBlockId(new BlockPos(entity.getPosition()));
     }
 
     /**
@@ -198,7 +212,7 @@ public class World {
      */
     public short getBlockAtEntityEye(Entity entity) {
         Vec3d eyePos = entity.getPosition().add(0, entity.getEyeHeight(), 0);
-        return getBlock(new BlockPos(eyePos));
+        return getBlockId(new BlockPos(eyePos));
     }
 
     public void addEntity(Entity entity) {
@@ -211,6 +225,8 @@ public class World {
         entities.put(id, entity);
         updateEntityList();
 
+        physicsManager.registerRigidBody(entity);
+
         if(StrataClient.getInstance().getDebugInfo().showWorldDebug())
             LOGGER.debug("Added entity {} with ID {}", entity.getClass().getSimpleName(), id);
     }
@@ -218,6 +234,9 @@ public class World {
     public void removeEntity(UUID id) {
         Entity removed = entities.remove(id);
         if (removed != null) {
+
+            physicsManager.unregisterRigidBody(removed);
+
             updateEntityList();
             if(StrataClient.getInstance().getDebugInfo().showWorldDebug())
                 LOGGER.debug("Removed entity {} with ID {}", removed.getClass().getSimpleName(), id);
@@ -286,10 +305,18 @@ public class World {
             chunkMeshBuilder.stop();
         }
 
+        if (physicsManager != null) {
+            physicsManager.clear();
+        }
+
         clearEntities();
         clearChunks();
 
         LOGGER.info("World '{}' shut down successfully", worldName);
+    }
+
+    public PhysicsManager getPhysicsManager() {
+        return physicsManager;
     }
 
     /**

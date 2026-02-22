@@ -7,7 +7,9 @@
   "author": "SandyMandy",
   "entrypoints": {
     "common": ["engine.strata.core.StrataCore"],
-    "client": ["engine.strata.client.StrataClient"]
+    "client": ["engine.strata.client.StrataClient"],
+    "server": ["engine.strata.client.StrataServer"],
+    "block_type": ["engine.strata.world.block.BlockTypes"]
   },
   "depends": {
     "java": ">=21"

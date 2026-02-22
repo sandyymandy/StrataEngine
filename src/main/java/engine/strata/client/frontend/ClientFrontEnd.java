@@ -2,6 +2,8 @@ package engine.strata.client.frontend;
 
 import engine.helios.rendering.RenderSystem;
 import engine.helios.rendering.shader.ShaderManager;
+import engine.strata.api.ClientBackEndInitializer;
+import engine.strata.api.ClientFrontEndInitializer;
 import engine.strata.client.StrataClient;
 import engine.strata.client.frontend.window.Window;
 import engine.strata.client.render.Camera;
@@ -10,6 +12,7 @@ import engine.strata.client.render.renderer.entity.BiaEntityRenderer;
 import engine.strata.client.render.renderer.entity.PlayerEntityRenderer;
 import engine.strata.client.render.renderer.entity.util.EntityRendererRegistry;
 import engine.strata.client.render.snapshot.EntityRenderSnapshot;
+import engine.strata.core.entrypoint.EntrypointManager;
 import engine.strata.debug.DisplayDebugInfo;
 import engine.strata.registry.registries.EntityRegistry;
 import engine.strata.util.Identifier;
@@ -38,8 +41,9 @@ public class ClientFrontEnd {
         RenderSystem.initRenderThread();
         initHelios();
         init();
+        EntrypointManager.invoke("client_front_end", ClientFrontEndInitializer.class,
+                ClientFrontEndInitializer::onFrontEndInitialize);
 
-        setFramerateCap(FramerateCap.FPS_240);
     }
 
 
@@ -127,6 +131,7 @@ public class ClientFrontEnd {
     }
 
     private void init() {
+    setFramerateCap(FramerateCap.FPS_180);
         EntityRendererRegistry.register(EntityRegistry.PLAYER, PlayerEntityRenderer::new);
         EntityRendererRegistry.register(EntityRegistry.BIA, BiaEntityRenderer::new);
     }
@@ -182,6 +187,7 @@ public class ClientFrontEnd {
         FPS_60(60, "60 FPS"),
         FPS_120(120, "120 FPS"),
         FPS_144(144, "144 FPS"),
+        FPS_180(180, "180 FPS"),
         FPS_240(240, "240 FPS"),
         VSYNC(0, "VSync");
 

@@ -7,9 +7,6 @@ import org.jetbrains.annotations.Nullable;
 import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL30.*;
 
-/**
- * Enhanced RenderSystem with texture array support and improved state management.
- */
 public class RenderSystem {
     @Nullable
     private static Thread renderThread;

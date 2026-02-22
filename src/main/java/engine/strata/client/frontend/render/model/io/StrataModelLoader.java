@@ -103,7 +103,7 @@ public class StrataModelLoader {
                 return createFallbackModel(id);
             }
 
-            return new StrataModel(id, rootBone, textureUVWidth, textureUVHeight, textureSlots, meshes);
+            return new StrataModel(id, rootBone, textureUVWidth, textureUVHeight, meshes);
 
         } catch (Exception e) {
             LOGGER.error("Error loading model {}: {}", id, e.getMessage());
@@ -247,6 +247,6 @@ public class StrataModelLoader {
                 new Vector3f(0, 0, 0), Collections.singletonList("fallback_cuboid")
         );
 
-        return new StrataModel(id, root, 64, 64, Collections.singletonList("main"), meshes);
+        return new StrataModel(id, root, 64, 64, meshes);
     }
 }

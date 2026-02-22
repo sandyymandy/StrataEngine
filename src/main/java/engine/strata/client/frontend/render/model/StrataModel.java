@@ -13,15 +13,13 @@ public class StrataModel {
     private final StrataBone root;
     private final int textureUVWidth;
     private final int textureUVHeight;
-    private final List<String> textureSlots;
     private final Map<String, StrataMeshData> meshes;
 
-    public StrataModel(Identifier id, StrataBone root, int textureUVWidth, int textureUVHeight, List<String> textureSlots, Map<String, StrataMeshData> meshes) {
+    public StrataModel(Identifier id, StrataBone root, int textureUVWidth, int textureUVHeight, Map<String, StrataMeshData> meshes) {
         this.id = id;
         this.root = root;
         this.textureUVWidth = textureUVWidth;
         this.textureUVHeight = textureUVHeight;
-        this.textureSlots = textureSlots;
         this.meshes = meshes;
     }
 

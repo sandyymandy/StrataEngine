@@ -6,6 +6,7 @@ import engine.strata.client.input.InputSystem;
 import engine.strata.client.input.keybind.Keybinds;
 import engine.strata.core.entrypoint.EntrypointManager;
 import engine.strata.entity.entities.BiaEntity;
+import engine.strata.entity.entities.MikaEntity;
 import engine.strata.entity.entities.PlayerEntity;
 import engine.strata.event.events.KeyEvent;
 import engine.strata.event.events.MouseEvent;
@@ -32,21 +33,24 @@ public class ClientBackEnd {
 
         this.world = new World("TestWorld", System.currentTimeMillis());
         this.player = EntityRegistry.PLAYER.create(world);
-        this.player.setPosition(0, 150, 0);
+        this.player.setPosition(0, 90, 0);
         world.addEntity(player);
-        spawnTestEntities();
+        spawnTestEntities(5);
+        spawnTestEntities(10);
+        spawnTestEntities(15);
+        spawnTestEntities(20);
 
         // Pre-load chunks around spawn
         LOGGER.info("Pre-loading spawn chunks...");
         world.preloadChunks(player.getPosition().getX(), player.getPosition().getY(), player.getPosition().getZ());
     }
 
-    private void spawnTestEntities() {
+    private void spawnTestEntities(int pos) {
         LOGGER.info("Spawning test entities...");
 
-        for (int i = 0; i < 10; i++) {
-            BiaEntity bia = EntityRegistry.BIA.create(world);
-            bia.setPosition(i * 2, 150, -5);
+        for (int i = 0; i < 15; i++) {
+            MikaEntity bia = EntityRegistry.MIKA.create(world);
+            bia.setPosition(i + 1.5, 120, -pos+.5);
             bia.setHeadPitch((float) (i / 0.4));
             world.addEntity(bia);
         }

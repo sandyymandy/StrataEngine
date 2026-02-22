@@ -1,6 +1,5 @@
 package engine.strata.client.frontend.render.util;
 
-import engine.helios.rendering.vertex.BufferBuilder;
 import engine.helios.rendering.RenderLayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,17 +52,6 @@ public class RenderDebugger {
     }
 
     /**
-     * Records render statistics for a layer.
-     */
-    public static void recordLayerStats(RenderLayer layer, BufferBuilder buffer, long renderTimeNanos) {
-        if (!enabled) return;
-
-        String layerName = layer.texture().toString();
-        layerVertexCounts.put(layerName, buffer.getVertexCount());
-        layerRenderTimes.put(layerName, renderTimeNanos);
-    }
-
-    /**
      * Logs frame statistics.
      */
     public static void logFrameStats() {
@@ -96,21 +84,6 @@ public class RenderDebugger {
         totalEntitiesCulled = 0;
         layerVertexCounts.clear();
         layerRenderTimes.clear();
-    }
-
-    /**
-     * Validates that a buffer is in the correct state for rendering.
-     */
-    public static void validateBuffer(BufferBuilder buffer, String context) {
-        if (!enabled) return;
-
-        if (!buffer.isBuilding()) {
-            LOGGER.warn("[{}] Buffer is not building!", context);
-        }
-
-        if (buffer.getVertexCount() == 0) {
-            LOGGER.warn("[{}] Buffer has no vertices!", context);
-        }
     }
 
     /**

@@ -1,7 +1,13 @@
 {
   "id": "strata:mika",
+  "format_version": 3,
   "textures": {
-    "ellie.png": "strata:entity/ellie.png",
-    "main": "strata:entity/main"
+    "ellie.png": {
+      "path": "strata:entities/mika",
+      "width": 4096,
+      "height": 4096,
+      "translucent": true,
+      "render_priority": 1
+    }
   }
 }

@@ -37,6 +37,7 @@ public class World {
     private final long seed;
     private final String worldName;
     private final Random random = new Random(System.currentTimeMillis());
+
     // Player position tracking for chunk loading
     private int lastPlayerChunkX = Integer.MAX_VALUE;
     private int lastPlayerChunkZ = Integer.MAX_VALUE;
@@ -96,15 +97,17 @@ public class World {
             }
         }
 
+        // Tick physics (will automatically pause physics for entities in unloaded chunks)
         physicsManager.tick();
     }
 
     /**
      * Updates chunks around player with movement threshold.
+     * Uses square radius loading pattern starting from player chunk.
      */
     private void updateChunksAroundPlayer(Entity player) {
-        int playerChunkX = (int) Math.floor(player.getPosition().getX() / SubChunk.SIZE);
-        int playerChunkZ = (int) Math.floor(player.getPosition().getZ() / SubChunk.SIZE);
+        int playerChunkX = Math.floorDiv((int) Math.floor(player.getPosition().getX()), SubChunk.SIZE);
+        int playerChunkZ = Math.floorDiv((int) Math.floor(player.getPosition().getZ()), SubChunk.SIZE);
 
         // Check if player has moved far enough to update chunks
         int dx = Math.abs(playerChunkX - lastPlayerChunkX);
@@ -114,7 +117,7 @@ public class World {
             lastPlayerChunkX = playerChunkX;
             lastPlayerChunkZ = playerChunkZ;
 
-            // Request generation for chunks around player
+            // Request generation for chunks around player (square radius pattern)
             List<ChunkManager.ChunkPos> chunksToLoad = chunkManager.getChunksToLoad(
                     player.getPosition().getX(),
                     player.getPosition().getZ()
@@ -141,6 +144,7 @@ public class World {
 
     /**
      * Pre-loads chunks around spawn with priority loading.
+     * Loads player chunk first, then expands in square radius.
      */
     public void preloadChunks(double x, double y, double z) {
         LOGGER.info("Pre-loading chunks around [{}, {}, {}]", x, y, z);
@@ -148,7 +152,7 @@ public class World {
         List<ChunkManager.ChunkPos> chunks = chunkManager.getChunksToLoad(x, z);
         chunkGenerator.requestGeneration(chunks);
 
-        LOGGER.info("Requested generation of {} spawn chunks", chunks.size());
+        LOGGER.info("Requested generation of {} spawn chunks (player chunk first)", chunks.size());
     }
 
     /**
@@ -213,6 +217,13 @@ public class World {
     public short getBlockAtEntityEye(Entity entity) {
         Vec3d eyePos = entity.getPosition().add(0, entity.getEyeHeight(), 0);
         return getBlockId(new BlockPos(eyePos));
+    }
+
+    /**
+     * Checks if the chunk at the given world position is loaded.
+     */
+    public boolean isChunkLoaded(double worldX, double worldZ) {
+        return chunkManager.isChunkLoadedAtWorldPos(worldX, worldZ);
     }
 
     public void addEntity(Entity entity) {
@@ -324,12 +335,13 @@ public class World {
      */
     public String getDebugInfo() {
         return String.format(
-                "World: %s | Chunks: %d (%d regions) | Memory: %.2f MB | Queue: Gen=%d",
+                "World: %s | Chunks: %d (%d regions) | Memory: %.2f MB | Queue: Gen=%d | %s",
                 worldName,
                 chunkManager.getTotalChunks(),
                 chunkManager.getTotalRegions(),
                 chunkManager.getTotalMemoryUsageMB(),
-                chunkGenerator.getQueueSize()
+                chunkGenerator.getQueueSize(),
+                physicsManager.getDebugInfo()
         );
     }
 }

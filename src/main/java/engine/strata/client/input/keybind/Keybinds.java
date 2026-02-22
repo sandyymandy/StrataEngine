@@ -73,11 +73,6 @@ public class Keybinds {
             GLFW.GLFW_KEY_LEFT_SHIFT
     );
 
-    public static final Keybind FAST_PLUS = new Keybind(
-            Identifier.of("strata", "fastplus"),
-            GLFW.GLFW_KEY_LEFT_ALT
-    );
-
     public static final Keybind DEBUG_PLACE = new Keybind(
             Identifier.of("strata", "debug_place"),
             GLFW.GLFW_KEY_P

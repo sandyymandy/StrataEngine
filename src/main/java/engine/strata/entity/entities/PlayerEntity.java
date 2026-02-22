@@ -66,6 +66,7 @@ public class PlayerEntity extends Entity {
     // ── Movement ──────────────────────────────────────────────────────────────
 
     private void handleMovement() {
+//        setNoClip(true);
         float forward = 0;
         float strafe = 0;
         float vertical = 0;
@@ -84,9 +85,9 @@ public class PlayerEntity extends Entity {
 
         // Speed modifications
         float speed = groundSpeed;
-        if (Keybinds.FAST_PLUS.isPressedTick()) {
-            speed = 5.0f;
-        } else if (Keybinds.FAST.isPressedTick()) {
+        if (Keybinds.FAST.isPressedTick()) {
+            speed = 8.0f;
+        } else if (Keybinds.CROUCH.isPressedTick()) {
             speed = 1.0f;
         }
 
@@ -94,7 +95,7 @@ public class PlayerEntity extends Entity {
         if (noClip) {
             // Flying mode - move in 3D direction of camera
             if (forward != 0 || strafe != 0 || vertical != 0) {
-                moveRelative3D(forward, strafe, vertical, speed);
+                moveRelative(forward, strafe, speed);
             }
         } else {
             // Ground mode - horizontal movement only

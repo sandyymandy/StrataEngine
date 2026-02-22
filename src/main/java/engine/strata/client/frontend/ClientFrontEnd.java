@@ -4,6 +4,7 @@ import engine.helios.rendering.RenderSystem;
 import engine.helios.rendering.shader.ShaderManager;
 import engine.strata.api.ClientFrontEndInitializer;
 import engine.strata.client.StrataClient;
+import engine.strata.client.frontend.render.renderer.entity.MikaEntityRenderer;
 import engine.strata.client.frontend.window.Window;
 import engine.strata.client.frontend.render.Camera;
 import engine.strata.client.frontend.render.renderer.MasterRenderer;
@@ -128,6 +129,7 @@ public class ClientFrontEnd {
         setFramerateCap(FramerateCap.FPS_180);
         EntityRendererRegistry.register(EntityRegistry.PLAYER, PlayerEntityRenderer::new);
         EntityRendererRegistry.register(EntityRegistry.BIA, BiaEntityRenderer::new);
+        EntityRendererRegistry.register(EntityRegistry.MIKA, MikaEntityRenderer::new);
     }
 
     private void initHelios() {

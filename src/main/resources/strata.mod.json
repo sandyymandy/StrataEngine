@@ -8,8 +8,7 @@
   "entrypoints": {
     "common": ["engine.strata.core.StrataCore"],
     "client": ["engine.strata.client.StrataClient"],
-    "server": ["engine.strata.client.StrataServer"],
-    "block_type": ["engine.strata.world.block.BlockTypes"]
+    "server": ["engine.strata.server.StrataServer"]
   },
   "depends": {
     "java": ">=21"

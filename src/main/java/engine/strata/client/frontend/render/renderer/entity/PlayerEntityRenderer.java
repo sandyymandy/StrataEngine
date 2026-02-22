@@ -13,7 +13,7 @@ public class PlayerEntityRenderer extends EntityRenderer<PlayerEntity> {
 
     @Override
     public Identifier getModelId() {
-        return Identifier.ofEngine("playesr");
+        return Identifier.ofEngine("playser");
     }
 
 }

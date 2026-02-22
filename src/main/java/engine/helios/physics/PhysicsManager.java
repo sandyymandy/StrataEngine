@@ -18,6 +18,7 @@ import java.util.List;
  * - Sweep-and-prune broad phase collision detection
  * - Separating Axis Theorem for precise collision
  * - Handles friction, restitution, and ground detection
+ * - Pauses physics for entities in unloaded chunks
  */
 public class PhysicsManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("Physics");
@@ -32,6 +33,10 @@ public class PhysicsManager {
 
     // List of all physics objects
     private final List<RigidBody> rigidBodies = new ArrayList<>();
+
+    // Statistics
+    private int entitiesWithPhysics = 0;
+    private int entitiesPaused = 0;
 
     public PhysicsManager(World world) {
         this.world = world;
@@ -60,7 +65,20 @@ public class PhysicsManager {
      * Should be called once per tick (20 times per second).
      */
     public void tick() {
+        entitiesWithPhysics = 0;
+        entitiesPaused = 0;
+
         for (RigidBody body : rigidBodies) {
+            // Check if entity's chunk is loaded
+            if (!isChunkLoadedForEntity(body)) {
+                // Pause physics for entities in unloaded chunks
+                pausePhysicsForBody(body);
+                entitiesPaused++;
+                continue;
+            }
+
+            entitiesWithPhysics++;
+
             if (!body.isCollidable() || body.isNoClip()) {
                 continue; // Skip collision for non-collidable or noclip entities
             }
@@ -68,6 +86,26 @@ public class PhysicsManager {
             // Apply movement with collision detection
             moveWithCollision(body);
         }
+    }
+
+    /**
+     * Checks if the chunk containing the entity is loaded.
+     */
+    private boolean isChunkLoadedForEntity(RigidBody body) {
+        Vec3d pos = body.getPosition();
+        return world.getChunkManager().isChunkLoadedAtWorldPos(pos.getX(), pos.getZ());
+    }
+
+    /**
+     * Pauses physics for an entity by zeroing out its velocity.
+     * This prevents entities from falling into the void when their chunk isn't loaded.
+     */
+    private void pausePhysicsForBody(RigidBody body) {
+        // Zero out velocity to prevent further movement
+        body.setVelocity(0, 0, 0);
+
+        // Mark as not on ground since we can't check collision
+        body.setOnGround(false);
     }
 
     /**
@@ -339,6 +377,21 @@ public class PhysicsManager {
      * Gets debug information about the physics system.
      */
     public String getDebugInfo() {
-        return String.format("Physics: %d bodies", rigidBodies.size());
+        return String.format("Physics: %d bodies (%d active, %d paused)",
+                rigidBodies.size(), entitiesWithPhysics, entitiesPaused);
+    }
+
+    /**
+     * Gets the number of entities with active physics this tick.
+     */
+    public int getActivePhysicsCount() {
+        return entitiesWithPhysics;
+    }
+
+    /**
+     * Gets the number of entities with paused physics this tick.
+     */
+    public int getPausedPhysicsCount() {
+        return entitiesPaused;
     }
 }

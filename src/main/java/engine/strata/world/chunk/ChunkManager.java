@@ -9,7 +9,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * FIX: Updated getBlock/setBlock to use Math.floorDiv for proper negative Y handling
+ * Updated ChunkManager with square radius loading pattern.
+ * Loads chunks in order: player chunk first, then expanding square radius.
  */
 public class ChunkManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("ChunkManager");
@@ -58,6 +59,34 @@ public class ChunkManager {
         });
 
         region.addChunk(chunk);
+    }
+
+    // ── Chunk loading state ──────────────────────────────────────────────────
+
+    /**
+     * Checks if a chunk at world coordinates is loaded and generated.
+     */
+    public boolean isChunkLoadedAtWorldPos(double worldX, double worldZ) {
+        int chunkX = Math.floorDiv((int) Math.floor(worldX), SubChunk.SIZE);
+        int chunkZ = Math.floorDiv((int) Math.floor(worldZ), SubChunk.SIZE);
+        return isChunkLoaded(chunkX, chunkZ);
+    }
+
+    /**
+     * Checks if a chunk is loaded and generated.
+     */
+    public boolean isChunkLoaded(int chunkX, int chunkZ) {
+        Chunk chunk = getChunk(chunkX, chunkZ);
+        return chunk != null && chunk.isGenerated();
+    }
+
+    /**
+     * Gets the chunk containing the world position, or null if not loaded.
+     */
+    public Chunk getChunkAtWorldPos(double worldX, double worldZ) {
+        int chunkX = Math.floorDiv((int) Math.floor(worldX), SubChunk.SIZE);
+        int chunkZ = Math.floorDiv((int) Math.floor(worldZ), SubChunk.SIZE);
+        return getChunk(chunkX, chunkZ);
     }
 
     // ── Chunk removal ─────────────────────────────────────────────────────────
@@ -111,11 +140,6 @@ public class ChunkManager {
 
     // ── Block access ──────────────────────────────────────────────────────────
 
-    /**
-     * FIX: Use Math.floorDiv instead of regular division to handle negative
-     * coordinates correctly. Regular division rounds toward zero, but chunk
-     * coordinates should round toward negative infinity.
-     */
     public short getBlock(int worldX, int worldY, int worldZ) {
         int   chunkX = Math.floorDiv(worldX, SubChunk.SIZE);
         int   chunkZ = Math.floorDiv(worldZ, SubChunk.SIZE);
@@ -123,10 +147,6 @@ public class ChunkManager {
         return chunk == null ? 0 : chunk.getBlockWorld(worldX, worldY, worldZ);
     }
 
-    /**
-     * FIX: Use Math.floorDiv instead of regular division to handle negative
-     * coordinates correctly.
-     */
     public void setBlock(int worldX, int worldY, int worldZ, short blockId) {
         int   chunkX = Math.floorDiv(worldX, SubChunk.SIZE);
         int   chunkZ = Math.floorDiv(worldZ, SubChunk.SIZE);
@@ -136,47 +156,52 @@ public class ChunkManager {
 
     // ── Load / unload helpers ─────────────────────────────────────────────────
 
+    /**
+     * Gets chunks to load in square radius pattern, starting from player chunk.
+     * Returns an ordered list with player chunk first, then expanding square rings.
+     */
     public List<ChunkPos> getChunksToLoad(double centerX, double centerZ) {
         List<ChunkPos> chunks = new ArrayList<>();
-        int cx = (int) Math.floor(centerX / SubChunk.SIZE);
-        int cz = (int) Math.floor(centerZ / SubChunk.SIZE);
+        int cx = Math.floorDiv((int) Math.floor(centerX), SubChunk.SIZE);
+        int cz = Math.floorDiv((int) Math.floor(centerZ), SubChunk.SIZE);
 
-        // Generate chunks in a spiral pattern radiating outward from player
-        // This creates a more natural loading experience starting from center
-        chunks.add(new ChunkPos(cx, cz)); // Add center chunk first
+        // Priority 1: Player's current chunk
+        chunks.add(new ChunkPos(cx, cz));
 
+        // Priority 2: Chunks in expanding square rings
+        // This creates a natural loading experience radiating from the player
         for (int radius = 1; radius <= renderDistance; radius++) {
-            // Walk around the perimeter of each "ring" at this radius
+            // Load in square pattern: top, right, bottom, left edges
 
             // Top edge (left to right)
-            for (int x = -radius; x <= radius; x++) {
-                int distSq = x * x + radius * radius;
-                if (distSq <= renderDistance * renderDistance) {
-                    chunks.add(new ChunkPos(cx + x, cz - radius));
+            for (int x = cx - radius; x <= cx + radius; x++) {
+                int z = cz - radius;
+                if (!isChunkLoaded(x, z) && isWithinRadius(x, z, cx, cz)) {
+                    chunks.add(new ChunkPos(x, z));
                 }
             }
 
-            // Right edge (top to bottom, skip corners)
-            for (int z = -radius + 1; z <= radius - 1; z++) {
-                int distSq = radius * radius + z * z;
-                if (distSq <= renderDistance * renderDistance) {
-                    chunks.add(new ChunkPos(cx + radius, cz + z));
+            // Right edge (top to bottom, excluding corners)
+            for (int z = cz - radius + 1; z <= cz + radius - 1; z++) {
+                int x = cx + radius;
+                if (!isChunkLoaded(x, z) && isWithinRadius(x, z, cx, cz)) {
+                    chunks.add(new ChunkPos(x, z));
                 }
             }
 
             // Bottom edge (right to left)
-            for (int x = radius; x >= -radius; x--) {
-                int distSq = x * x + radius * radius;
-                if (distSq <= renderDistance * renderDistance) {
-                    chunks.add(new ChunkPos(cx + x, cz + radius));
+            for (int x = cx + radius; x >= cx - radius; x--) {
+                int z = cz + radius;
+                if (!isChunkLoaded(x, z) && isWithinRadius(x, z, cx, cz)) {
+                    chunks.add(new ChunkPos(x, z));
                 }
             }
 
-            // Left edge (bottom to top, skip corners)
-            for (int z = radius - 1; z >= -radius + 1; z--) {
-                int distSq = radius * radius + z * z;
-                if (distSq <= renderDistance * renderDistance) {
-                    chunks.add(new ChunkPos(cx - radius, cz + z));
+            // Left edge (bottom to top, excluding corners)
+            for (int z = cz + radius - 1; z >= cz - radius + 1; z--) {
+                int x = cx - radius;
+                if (!isChunkLoaded(x, z) && isWithinRadius(x, z, cx, cz)) {
+                    chunks.add(new ChunkPos(x, z));
                 }
             }
         }
@@ -184,10 +209,22 @@ public class ChunkManager {
         return chunks;
     }
 
+    /**
+     * Helper to check if a chunk is within the circular render distance.
+     */
+    private boolean isWithinRadius(int chunkX, int chunkZ, int centerX, int centerZ) {
+        int dx = chunkX - centerX;
+        int dz = chunkZ - centerZ;
+        return dx * dx + dz * dz <= renderDistance * renderDistance;
+    }
+
+    /**
+     * Gets chunks that should be unloaded (beyond render distance + buffer).
+     */
     public List<ChunkPos> getChunksToUnload(double centerX, double centerZ) {
         List<ChunkPos> toUnload = new ArrayList<>();
-        int cx = (int) Math.floor(centerX / SubChunk.SIZE);
-        int cz = (int) Math.floor(centerZ / SubChunk.SIZE);
+        int cx = Math.floorDiv((int) Math.floor(centerX), SubChunk.SIZE);
+        int cz = Math.floorDiv((int) Math.floor(centerZ), SubChunk.SIZE);
         int unloadDist = renderDistance + 4;
 
         for (Chunk chunk : chunkCache.values()) {

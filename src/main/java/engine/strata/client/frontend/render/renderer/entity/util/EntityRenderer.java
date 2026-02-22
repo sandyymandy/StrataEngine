@@ -1,8 +1,6 @@
 package engine.strata.client.frontend.render.renderer.entity.util;
 
-import engine.helios.rendering.vertex.BufferBuilder;
 import engine.helios.rendering.vertex.MatrixStack;
-import engine.helios.rendering.RenderLayer;
 import engine.strata.client.StrataClient;
 import engine.strata.client.frontend.render.model.io.ModelManager;
 import engine.strata.client.frontend.render.model.StrataModel;
@@ -18,6 +16,7 @@ import static engine.strata.util.math.Math.fLerp;
  */
 public abstract class EntityRenderer<T extends Entity> {
     protected final EntityRenderDispatcher dispatcher;
+    private Identifier modelId;
     private StrataModel model;
     private StrataSkin skin;
     private boolean modelLoaded = false;
@@ -41,6 +40,8 @@ public abstract class EntityRenderer<T extends Entity> {
                 return; // Failed to load
             }
         }
+
+        if (modelId != getModelId()) loadModel(entity);
 
         applyTransforms(entity, partialTicks, poseStack);
 
@@ -83,7 +84,7 @@ public abstract class EntityRenderer<T extends Entity> {
      */
     protected void loadModel(T entity) {
         try {
-            Identifier modelId = getModelId();
+            modelId = getModelId();
             model = ModelManager.getModel(modelId);
             skin = ModelManager.getSkin(modelId);
 
@@ -98,12 +99,6 @@ public abstract class EntityRenderer<T extends Entity> {
         }
     }
 
-    /**
-     * Helper to get a buffer for a specific render layer.
-     */
-    protected BufferBuilder getBuffer(RenderLayer layer) {
-        return StrataClient.getInstance().getMasterRenderer().getBuffer(layer);
-    }
 
     /**
      * Returns the model identifier for this entity.
@@ -118,14 +113,14 @@ public abstract class EntityRenderer<T extends Entity> {
     /**
      * Gets the loaded model instance.
      */
-    protected StrataModel getModel() {
+    public StrataModel getModel() {
         return model;
     }
 
     /**
      * Gets the loaded skin instance.
      */
-    protected StrataSkin getSkin() {
+    public StrataSkin getSkin() {
         return skin;
     }
 

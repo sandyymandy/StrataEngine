@@ -689,7 +689,7 @@
             const cleanName = texName.replace(/\.[^/.]+$/, "").toLowerCase();
 
             skinData.textures[texName] = {
-              path: `strata:entity/${cleanName}`,
+              path: `strata:entities/${cleanName}`,
               width: bbTex ? bbTex.width : (Project.texture_width || 16),
               height: bbTex ? bbTex.height : (Project.texture_height || 16),
               // Use Blockbench's internal 'transparent' flag

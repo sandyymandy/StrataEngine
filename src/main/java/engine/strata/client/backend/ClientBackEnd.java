@@ -37,8 +37,6 @@ public class ClientBackEnd {
         world.addEntity(player);
         spawnTestEntities(5);
         spawnTestEntities(10);
-        spawnTestEntities(15);
-        spawnTestEntities(20);
 
         // Pre-load chunks around spawn
         LOGGER.info("Pre-loading spawn chunks...");

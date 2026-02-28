@@ -117,6 +117,8 @@ public class Block {
         private final boolean fullBlock;
         private final int lightEmission;
         private final float hardness;
+        private final float friction;
+        private final float restitution;
         private final boolean collidable;
 
         private BlockProperties(Builder b) {
@@ -124,6 +126,8 @@ public class Block {
             this.fullBlock = b.fullBlock;
             this.lightEmission = b.lightEmission;
             this.hardness = b.hardness;
+            this.friction = b.friction;
+            this.restitution = b.restitution;
             this.collidable = b.collidable;
         }
 
@@ -133,6 +137,8 @@ public class Block {
         public boolean isFullBlock() { return fullBlock; }
         public int getLightEmission() { return lightEmission; }
         public float getHardness() { return hardness; }
+        public float getFriction() { return friction; }
+        public float getRestitution() { return restitution; }
         public boolean isCollidable() { return collidable; }
 
         public static class Builder {
@@ -141,11 +147,15 @@ public class Block {
             private int lightEmission = 0;
             private float hardness = 1.0f;
             private boolean collidable = true;
+            private float friction = 0.91f; // Default ground friction
+            private float restitution = 0.0f; // Default no bounce
 
             public Builder transparent(boolean v) { solid = v; return this; }
             public Builder fullBlock(boolean v) { fullBlock = v; return this; }
             public Builder lightEmission(int v) { lightEmission = Math.max(0, Math.min(15, v));   return this; }
             public Builder hardness(float v) { hardness = v; return this; }
+            public Builder friction(float v) { this.friction = v; return this; }
+            public Builder restitution(float v) { this.restitution = v; return this; }
             public Builder collidable(boolean v) { collidable = v; return this; }
 
             public BlockProperties build() { return new BlockProperties(this); }

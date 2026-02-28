@@ -16,6 +16,8 @@ import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static engine.strata.core.StrataCore.TICK_DELTA;
+
 public class StrataClient implements ClientInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("Client");
     private static StrataClient instance;
@@ -24,8 +26,7 @@ public class StrataClient implements ClientInitializer {
     private final ClientFrontEnd frontEnd;
     private final EventBus eventBus = new EventBus();
 
-    private static final float TICKS_PER_SECOND = 40F;
-    private static final float TIME_PER_TICK = 1.0F / TICKS_PER_SECOND;
+
 
     public StrataClient() {
         instance = this;
@@ -59,13 +60,13 @@ public class StrataClient implements ClientInitializer {
             backEnd.processInput();
 
             // Fixed timestep logic updates
-            while (accumulator >= TIME_PER_TICK) {
+            while (accumulator >= TICK_DELTA) {
                 backEnd.tick();
-                accumulator -= TIME_PER_TICK;
+                accumulator -= TICK_DELTA;
             }
 
             // Calculate partial ticks for interpolation
-            float partialTicks = (float) (accumulator / TIME_PER_TICK);
+            float partialTicks = (float) (accumulator / TICK_DELTA);
 
             // Render using current entity states with interpolation
             frontEnd.render(backEnd.getWorld().getEntities(), partialTicks, deltaTime);

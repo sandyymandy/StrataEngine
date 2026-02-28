@@ -752,4 +752,8 @@ public class Math {
                             float toMin, float toMax) {
         return toMin + (value - fromMin) * (toMax - toMin) / (fromMax - fromMin);
     }
+
+    public static float signum(float angleDiff) {
+        return java.lang.Math.signum(angleDiff);
+    }
 }

@@ -1,4 +1,4 @@
-package engine.strata.util.math;
+package engine.strata.util;
 
 import org.joml.Quaternionf;
 import org.joml.Vector3d;

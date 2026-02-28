@@ -22,7 +22,7 @@ public class EntityRegistry {
         return Registry.register(
                 Registries.ENTITY_KEY,
                 identifier,
-                builder.build()
+                builder.build(identifier)
         );
     }
 

@@ -1,8 +1,10 @@
 package engine.strata.world;
 
-import engine.strata.util.math.Vec3d;
-import engine.strata.util.math.Vec3f;
+import engine.strata.util.Transform;
+import engine.strata.util.Vec3d;
+import engine.strata.util.Vec3f;
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import static org.joml.Math.toRadians;
@@ -11,20 +13,18 @@ import static org.joml.Math.toRadians;
 /**
  * The base class for any physical object in the 3D world.
  * Handles Position, Rotation, Scale, and Matrix calculations.
+ * Now uses Quaternion rotation for smooth interpolation and no gimbal lock.
  */
 public abstract class SpatialObject {
 
-    // Transform Data
-    protected final Vec3d position = new Vec3d();
-    protected final Vec3f rotation = new Vec3f(); // Euler angles in Radians (Pitch, Yaw, Roll)
-    protected final Vec3f scale = new Vec3f(1, 1, 1);
+    // Transform
+    protected final Transform transform = new Transform();
 
     // Caching for performance (Calculate matrix only when needed)
     protected final Matrix4f modelMatrix = new Matrix4f();
     private boolean isDirty = true; // "Dirty" means data changed and matrix needs update
 
     // Physics / Collision (Simple AABB)
-    // You can expand this into a full class later
     protected final Vec3f boundingBoxSize = new Vec3f(1, 1, 1);
 
     public SpatialObject() {
@@ -35,7 +35,6 @@ public abstract class SpatialObject {
      * Called every game tick. Override for logic.
      */
     public void tick() {
-        // Optional: Physics or logic updates go here
     }
 
     // ==========================================
@@ -43,38 +42,72 @@ public abstract class SpatialObject {
     // ==========================================
 
     public void setPosition(double x, double y, double z) {
-        this.position.set(x, y, z);
+        this.transform.getPosition().set(x, y, z);
         this.isDirty = true;
     }
 
     public void move(float dx, float dy, float dz) {
-        this.position.add(dx, dy, dz);
+        this.transform.getPosition().add(dx, dy, dz);
         this.isDirty = true;
     }
 
     /**
-     * Sets rotation in Radians.
+     * Sets rotation using a Quaternion.
+     */
+    public void setRotation(Quaternionf quaternion) {
+        this.transform.getRotation().set(quaternion);
+        this.isDirty = true;
+    }
+
+    /**
+     * Sets rotation from Euler angles in Radians.
+     * Uses XYZ rotation order.
      */
     public void setRotation(float x, float y, float z) {
-        this.rotation.set(x, y, z);
+        this.transform.getRotation().rotationXYZ(x, y, z);
         this.isDirty = true;
     }
 
     /**
-     * Sets rotation in Degrees (helper).
+     * Sets rotation from Euler angles in Degrees (helper).
      */
     public void setRotationDegrees(float x, float y, float z) {
-        this.rotation.set(toRadians(x), toRadians(y), toRadians(z));
+        this.transform.getRotation().rotationXYZ(toRadians(x), toRadians(y), toRadians(z));
         this.isDirty = true;
+    }
+
+    /**
+     * Rotates by Euler angles in radians (adds to current rotation).
+     */
+    public void rotate(float x, float y, float z) {
+        this.transform.getRotation().rotateXYZ(x, y, z);
+        this.isDirty = true;
+    }
+
+    /**
+     * Rotates by Euler angles in degrees (adds to current rotation).
+     */
+    public void rotateDegrees(float x, float y, float z) {
+        this.transform.getRotation().rotateXYZ(toRadians(x), toRadians(y), toRadians(z));
+        this.isDirty = true;
+    }
+
+    /**
+     * Gets the rotation as Euler angles (pitch, yaw, roll) in radians.
+     * Extracted from the current quaternion.
+     */
+    public Vec3f getEulerAngles() {
+        Vector3f euler = this.transform.getRotation().getEulerAnglesXYZ(new Vector3f());
+        return new Vec3f(euler.x, euler.y, euler.z);
     }
 
     public void setScale(float s) {
-        this.scale.set(s, s, s);
+        this.transform.getScale().set(s, s, s);
         this.isDirty = true;
     }
 
     public void setScale(float x, float y, float z) {
-        this.scale.set(x, y, z);
+        this.transform.getScale().set(x, y, z);
         this.isDirty = true;
     }
 
@@ -95,9 +128,9 @@ public abstract class SpatialObject {
 
     protected void recalculateMatrix() {
         modelMatrix.identity()
-                .translate(position.toVector3f())
-                .rotateXYZ(rotation.getX(), rotation.getY(), rotation.getZ()) // Standard Euler rotation
-                .scale(scale.toVector3f());
+                .translate(transform.getPosition().toVector3f())
+                .rotate(transform.getRotation()) // Quaternion rotation
+                .scale(transform.getScale().toVector3f());
 
         isDirty = false;
     }
@@ -111,18 +144,29 @@ public abstract class SpatialObject {
      * Useful for moving "forward" regardless of rotation.
      */
     public Vector3f getForwardVector() {
-        // Calculate forward based on Yaw (Y) and Pitch (X)
-        float x = (float) (Math.sin(rotation.getY()) * Math.cos(rotation.getX()));
-        float y = (float) -Math.sin(rotation.getX());
-        float z = (float) (Math.cos(rotation.getY()) * Math.cos(rotation.getX()));
-        return new Vector3f(x, y, z).normalize();
+        // Transform the forward vector (0, 0, -1) by our rotation
+        return transform.getRotation().transform(new Vector3f(0, 0, -1));
+    }
+
+    /**
+     * Gets the right direction vector of this object.
+     */
+    public Vector3f getRightVector() {
+        return transform.getRotation().transform(new Vector3f(1, 0, 0));
+    }
+
+    /**
+     * Gets the up direction vector of this object.
+     */
+    public Vector3f getUpVector() {
+        return transform.getRotation().transform(new Vector3f(0, 1, 0));
     }
 
     // ==========================================
     //               GETTERS
     // ==========================================
 
-    public Vec3d getPosition() { return position; }
-    public Vec3f getRotation() { return rotation; }
-    public Vec3f getScale() { return scale; }
+    public Vec3d getPosition() { return transform.getPosition(); }
+    public Quaternionf getRotation() { return transform.getRotation(); }
+    public Vec3f getScale() { return transform.getScale(); }
 }

@@ -1,5 +1,6 @@
-package engine.strata.util.math;
+package engine.strata.util;
 
+import engine.strata.util.math.Math;
 import engine.strata.world.chunk.SubChunk;
 
 /**
@@ -23,9 +24,9 @@ public class BlockPos {
      * Uses floor operation to handle negative coordinates correctly.
      */
     public BlockPos(double x, double y, double z) {
-        this.x = (int) Math.floor(x);
-        this.y = (int) Math.floor(y);
-        this.z = (int) Math.floor(z);
+        this.x = (int) engine.strata.util.math.Math.floor(x);
+        this.y = (int) engine.strata.util.math.Math.floor(y);
+        this.z = (int) engine.strata.util.math.Math.floor(z);
     }
 
     /**
@@ -117,42 +118,42 @@ public class BlockPos {
      * Gets the chunk X coordinate this block is in.
      */
     public int getChunkX() {
-        return Math.floorDiv(x, SubChunk.SIZE);
+        return engine.strata.util.math.Math.floorDiv(x, SubChunk.SIZE);
     }
 
     /**
      * Gets the chunk Z coordinate this block is in.
      */
     public int getChunkZ() {
-        return Math.floorDiv(z, SubChunk.SIZE);
+        return engine.strata.util.math.Math.floorDiv(z, SubChunk.SIZE);
     }
 
     /**
      * Gets the subchunk Y level this block is in.
      */
     public int getSubChunkY() {
-        return Math.floorDiv(y, SubChunk.SIZE);
+        return engine.strata.util.math.Math.floorDiv(y, SubChunk.SIZE);
     }
 
     /**
      * Gets the local X coordinate within the chunk (0-31).
      */
     public int getLocalX() {
-        return Math.floorMod(x, SubChunk.SIZE);
+        return engine.strata.util.math.Math.floorMod(x, SubChunk.SIZE);
     }
 
     /**
      * Gets the local Y coordinate within the subchunk (0-31).
      */
     public int getLocalY() {
-        return Math.floorMod(y, SubChunk.SIZE);
+        return engine.strata.util.math.Math.floorMod(y, SubChunk.SIZE);
     }
 
     /**
      * Gets the local Z coordinate within the chunk (0-31).
      */
     public int getLocalZ() {
-        return Math.floorMod(z, SubChunk.SIZE);
+        return engine.strata.util.math.Math.floorMod(z, SubChunk.SIZE);
     }
 
     // ==================== Distance Calculations ====================
@@ -171,7 +172,7 @@ public class BlockPos {
      * Gets the distance to another BlockPos.
      */
     public double getDistance(BlockPos other) {
-        return Math.sqrt(getSquaredDistance(other));
+        return engine.strata.util.math.Math.sqrt(getSquaredDistance(other));
     }
 
     /**
@@ -188,16 +189,16 @@ public class BlockPos {
      * Gets the distance to world coordinates.
      */
     public double getDistance(double x, double y, double z) {
-        return Math.sqrt(getSquaredDistance(x, y, z));
+        return engine.strata.util.math.Math.sqrt(getSquaredDistance(x, y, z));
     }
 
     /**
      * Gets the Manhattan distance to another BlockPos.
      */
     public int getManhattanDistance(BlockPos other) {
-        return Math.abs(this.x - other.x) +
-                Math.abs(this.y - other.y) +
-                Math.abs(this.z - other.z);
+        return engine.strata.util.math.Math.abs(this.x - other.x) +
+                engine.strata.util.math.Math.abs(this.y - other.y) +
+                engine.strata.util.math.Math.abs(this.z - other.z);
     }
 
     // ==================== Conversion Methods ====================
@@ -236,8 +237,8 @@ public class BlockPos {
      * Checks if this BlockPos is within a cubic region.
      */
     public boolean isWithinDistance(BlockPos center, int distance) {
-        return Math.abs(x - center.x) <= distance &&
-                Math.abs(y - center.y) <= distance &&
+        return engine.strata.util.math.Math.abs(x - center.x) <= distance &&
+                engine.strata.util.math.Math.abs(y - center.y) <= distance &&
                 Math.abs(z - center.z) <= distance;
     }
 

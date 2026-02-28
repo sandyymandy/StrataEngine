@@ -3,7 +3,7 @@ package engine.strata.client.frontend.render.renderer;
 import engine.helios.rendering.shader.ShaderManager;
 import engine.helios.rendering.shader.ShaderStack;
 import engine.strata.util.Identifier;
-import engine.strata.util.math.BlockPos;
+import engine.strata.util.BlockPos;
 import engine.strata.util.math.BlockRaycast;
 import engine.strata.world.block.model.BlockModel;
 import org.joml.Matrix4f;

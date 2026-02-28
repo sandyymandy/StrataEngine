@@ -140,9 +140,9 @@ public class ChunkRenderer {
     // ── Rendering ─────────────────────────────────────────────────────────────
 
     private void renderVisibleChunks() {
-        float camX = (float) camera.getPos().x;
-        float camY = (float) camera.getPos().y;
-        float camZ = (float) camera.getPos().z;
+        float camX = (float) camera.getPos().getX();
+        float camY = (float) camera.getPos().getY();
+        float camZ = (float) camera.getPos().getZ();
 
         // Convert chunk distance to blocks once; all culling uses block-space.
         float blockDistance = renderDistance * SubChunk.SIZE;

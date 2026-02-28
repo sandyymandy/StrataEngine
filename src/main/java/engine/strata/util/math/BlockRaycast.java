@@ -1,5 +1,7 @@
 package engine.strata.util.math;
 
+import engine.strata.util.BlockPos;
+import engine.strata.util.Vec3d;
 import engine.strata.world.World;
 
 /**

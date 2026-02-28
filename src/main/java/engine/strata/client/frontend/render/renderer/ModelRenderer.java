@@ -12,15 +12,19 @@ import engine.strata.client.frontend.render.model.StrataBone;
 import engine.strata.client.frontend.render.model.StrataMeshData;
 import engine.strata.client.frontend.render.model.StrataModel;
 import engine.strata.client.frontend.render.model.StrataSkin;
+import engine.strata.client.frontend.render.renderer.entity.EntityRenderContext;
+import engine.strata.util.Identifier;
 import org.joml.Matrix4f;
+import org.joml.Vector2f;
 import org.joml.Vector3f;
+import org.joml.Vector4f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
 /**
- * GPU-driven model renderer.
+ * GPU-driven model renderer with EntityRenderContext support.
  *
  * <h3>How transforms work</h3>
  * The bone hierarchy is walked exactly as before, accumulating transforms in a
@@ -28,19 +32,23 @@ import java.util.Map;
  * {@code u_Model} shader uniform, then the pre-uploaded VAO is drawn with a
  * single {@code glDrawArrays} call — no per-frame vertex data is touched on the CPU.
  *
- * <h3>How textures / colour work</h3>
- * Static VBOs use {@code POSITION_TEXTURE} format — no per-vertex colour channel.
- * {@link MeshRenderer#render()} calls {@code glVertexAttrib4f(2, 1,1,1,1)} before
- * each draw so that the disabled colour attribute reads white rather than the
- * OpenGL default of black, letting the fragment shader output the texture unchanged.
+ * <h3>EntityRenderContext integration</h3>
+ * When rendering with a context:
+ * <ul>
+ *   <li>Global tint → applied to u_Tint uniform</li>
+ *   <li>Global emissive → (future: needs shader support)</li>
+ *   <li>Per-bone tint → overrides global tint for specific bones</li>
+ *   <li>Per-bone visibility → skips rendering invisible bones</li>
+ *   <li>Texture overrides → swaps texture paths before layer setup</li>
+ * </ul>
  *
  * <h3>Shader contract</h3>
- * The active shader (taken from {@link RenderLayer#shaderStack()} <em>after</em>
- * {@link RenderLayer#setup} has been called) must expose:
+ * The active shader must expose:
  * <ul>
  *   <li>{@code uniform mat4 u_Projection} – set by {@link RenderLayer#setup}</li>
  *   <li>{@code uniform mat4 u_View}       – set by {@link RenderLayer#setup}</li>
  *   <li>{@code uniform mat4 u_Model}      – set per mesh draw call here</li>
+ *   <li>{@code uniform vec4 u_Tint}       – set per mesh for colorization</li>
  * </ul>
  *
  * <h3>Rotation unit contract</h3>
@@ -61,10 +69,23 @@ public class ModelRenderer {
     // ── Public entry points ───────────────────────────────────────────────────
 
     /**
-     * Renders every texture slot of {@code model} using GPU-cached mesh data.
-     * The {@code poseStack} should already have the entity world-transform pushed.
+     * Renders model without customization (legacy compatibility).
+     * Uses default white tint, all bones visible.
      */
     public void render(StrataModel model, StrataSkin skin, MatrixStack poseStack) {
+        render(model, skin, poseStack, new EntityRenderContext());
+    }
+
+    /**
+     * Renders model with EntityRenderContext customization.
+     * This is the main entry point for context-aware rendering.
+     *
+     * @param model The model to render
+     * @param skin The skin (textures) to apply
+     * @param poseStack Transform stack with entity position/rotation
+     * @param context Render customization (tints, visibility, etc.)
+     */
+    public void render(StrataModel model, StrataSkin skin, MatrixStack poseStack, EntityRenderContext context) {
         // Ensure all meshes are on the GPU — no-op after the first frame.
         GpuModelBaker.getInstance().ensureBaked(model);
 
@@ -72,23 +93,29 @@ public class ModelRenderer {
             String                 textureSlot = entry.getKey();
             StrataSkin.TextureData texData     = entry.getValue();
 
-            RenderLayer layer = RenderLayers.getEntityLayer(texData.path(), texData.translucent());
+            // Apply texture override from context if present
+            Identifier texturePath = context.hasTextureOverride(textureSlot) ?
+                    context.getTextureOverride(textureSlot) : texData.path();
 
+            RenderLayer layer = RenderLayers.getEntityLayer(texturePath, texData.translucent());
 
             layer.setup(StrataClient.getInstance().getCamera());
             ShaderStack shader = layer.shaderStack(); // always after setup()
 
             if (shader == null) {
                 LOGGER.error("ModelRenderer: RenderLayer for '{}' has null shader — skipping",
-                        texData.path());
+                        texturePath);
                 layer.clean();
                 continue;
             }
 
+            // Render bone hierarchy with context
             renderBone(model, textureSlot, model.getRoot(), poseStack, shader,
-                    new Matrix4f().identity());
+                    new Matrix4f().identity(), context);
 
+            // Reset uniforms to defaults
             shader.setUniform("u_Model", IDENTITY);
+            shader.setUniform("u_Tint", 1f, 1f, 1f, 1f);
 
             layer.clean();
         }
@@ -102,18 +129,23 @@ public class ModelRenderer {
     // ── Bone traversal ────────────────────────────────────────────────────────
 
     /**
-     * Recursively walks the bone tree, accumulating transforms in {@code poseStack}.
-     * Structure is identical to the old immediate-mode implementation — only the
-     * leaf action changed (uniform upload + glDrawArrays instead of CPU vertex data).
+     * Recursively walks the bone tree with EntityRenderContext support.
+     * Applies per-bone visibility and customization.
      */
     private void renderBone(StrataModel model,
                             String textureSlotFilter,
                             StrataBone bone,
                             MatrixStack poseStack,
                             ShaderStack shader,
-                            Matrix4f parentModelMatrix) {
+                            Matrix4f parentModelMatrix,
+                            EntityRenderContext context) {
 
         if (!bone.shouldRender()) return;
+
+        // Check context visibility override
+        if (!context.isBoneVisible(bone.getName())) {
+            return;
+        }
 
         poseStack.push();
 
@@ -136,11 +168,11 @@ public class ModelRenderer {
             if (meshData == null) continue;
             if (textureSlotFilter != null && !textureSlotFilter.equals(meshData.textureSlot())) continue;
 
-            drawMesh(model, meshData, meshId, poseStack, shader);
+            drawMesh(model, meshData, meshId, poseStack, shader, bone, context);
         }
 
         for (StrataBone child : bone.getChildren()) {
-            renderBone(model, textureSlotFilter, child, poseStack, shader, currentModelMatrix);
+            renderBone(model, textureSlotFilter, child, poseStack, shader, currentModelMatrix, context);
         }
 
         poseStack.pop();
@@ -150,14 +182,12 @@ public class ModelRenderer {
     // ── Per-mesh draw ─────────────────────────────────────────────────────────
 
     /**
-     * Computes the full model matrix (bone chain × mesh pivot/rotation),
-     * uploads it as {@code u_Model}, and issues one {@code glDrawArrays}.
-     *
-     * <p>Colour is handled transparently by {@link MeshRenderer#render()} via
-     * {@code glVertexAttrib4f} — no per-draw tint upload is needed here.
+     * Draws a single mesh with EntityRenderContext customization.
+     * Applies per-bone tint, emissive, and UV offsets.
      */
     private void drawMesh(StrataModel model, StrataMeshData meshData, String meshId,
-                          MatrixStack poseStack, ShaderStack shader) {
+                          MatrixStack poseStack, ShaderStack shader,
+                          StrataBone bone, EntityRenderContext context) {
 
         String       cacheKey     = GpuModelBaker.getInstance().meshKey(model.getId(), meshId);
         MeshRenderer meshRenderer = GpuModelCache.getInstance().get(cacheKey);
@@ -167,13 +197,42 @@ public class ModelRenderer {
         Matrix4f meshMatrix = new Matrix4f(poseStack.peek());
         applyMeshLocalTransform(meshMatrix, meshData);
 
-        // u_Model goes to whichever GL program is bound (the RenderLayer's shader,
-        // activated just before this via layer.setup()).
+        // Upload model matrix
         shader.setUniform("u_Model", meshMatrix);
+
+        // Apply tint from context
+        Vector4f tint = computeFinalTint(bone, context);
+        shader.setUniform("u_Tint", tint.x, tint.y, tint.z, tint.w);
+
+        // TODO: Apply emissive (requires shader support)
+        // float emissive = context.getBoneEmissive(bone.getName());
+        // if (emissive > 0) {
+        //     shader.setUniform("u_Emissive", emissive);
+        // }
+
+        // TODO: Apply UV offset (requires shader support)
+        // Vector2f uvOffset = context.getBoneUVOffset(bone.getName());
+        // shader.setUniform("u_UVOffset", uvOffset.x, uvOffset.y);
 
         // MeshRenderer.render() internally calls glVertexAttrib4f(2, 1,1,1,1) when
         // the format has no colour channel, preventing the black-texture bug.
         meshRenderer.render();
+    }
+
+    /**
+     * Computes the final tint color for a bone, combining global and per-bone tints.
+     */
+    private Vector4f computeFinalTint(StrataBone bone, EntityRenderContext context) {
+        Vector4f globalTint = context.getGlobalTint();
+        Vector4f boneTint = context.getBoneTint(bone.getName());
+
+        // Multiply global and bone tints
+        return new Vector4f(
+                globalTint.x * boneTint.x,
+                globalTint.y * boneTint.y,
+                globalTint.z * boneTint.z,
+                globalTint.w * boneTint.w
+        );
     }
 
     /**

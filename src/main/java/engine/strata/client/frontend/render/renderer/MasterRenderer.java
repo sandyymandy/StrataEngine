@@ -11,15 +11,13 @@ import engine.strata.client.frontend.render.Camera;
 import engine.strata.client.frontend.render.RenderLayers;
 import engine.strata.client.frontend.render.model.GpuModelBaker;
 import engine.strata.client.frontend.render.model.io.ModelManager;
-import engine.strata.client.frontend.render.renderer.entity.util.EntityRenderDispatcher;
-import engine.strata.client.frontend.render.renderer.entity.util.EntityRenderer;
+import engine.strata.client.frontend.render.renderer.entity.EntityRenderer;
 import engine.strata.debug.DisplayDebugInfo;
 import engine.strata.entity.Entity;
 import engine.strata.entity.entities.PlayerEntity;
-import engine.strata.entity.util.EntityKey;
 import engine.strata.util.Identifier;
 import engine.strata.world.World;
-import engine.strata.util.math.BlockPos;
+import engine.strata.util.BlockPos;
 import engine.strata.util.math.BlockRaycast;
 import engine.strata.world.block.Block;
 import engine.strata.world.block.Blocks;
@@ -33,11 +31,7 @@ import org.joml.Matrix4f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 import static engine.strata.util.math.Math.fLerp;
 import static engine.strata.util.math.Math.lerp;
@@ -54,6 +48,11 @@ import static engine.strata.util.math.Math.lerp;
  * </ul>
  * {@link ModelRenderer} then overrides these uniforms per-mesh when rendering
  * static-VBO entity models.
+ *
+ * <h3>Entity rendering refactor</h3>
+ * Removed EntityRenderDispatcher and per-entity renderer classes.
+ * Now uses a single {@link EntityRenderer} instance that reads configuration
+ * from {@link Entity#getModelId()} and {@link Entity#getRenderContext()}.
  */
 public class MasterRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger("MasterRenderer");
@@ -70,7 +69,7 @@ public class MasterRenderer {
     private final ModelRenderer modelRenderer;
     private final GuiRenderer guiRenderer;
     private final BlockOutlineRenderer blockOutlineRenderer;
-    private final EntityRenderDispatcher entityRenderDispatcher;
+    private final EntityRenderer entityRenderer;
     private final BlockModelLoader blockModelLoader;
 
     private ChunkRenderer chunkRenderer;
@@ -91,7 +90,7 @@ public class MasterRenderer {
         this.poseStack             = new MatrixStack();
         this.modelRenderer         = new ModelRenderer();
         this.guiRenderer           = new GuiRenderer();
-        this.entityRenderDispatcher= new EntityRenderDispatcher();
+        this.entityRenderer        = new EntityRenderer();
         this.debug                 = debug;
         this.blockOutlineRenderer  = new BlockOutlineRenderer();
         this.blockModelLoader      = new BlockModelLoader();
@@ -225,6 +224,12 @@ public class MasterRenderer {
 
     // ── Entity rendering ───────────────────────────────────────────────────────
 
+    /**
+     * Renders all entities using the universal EntityRenderer.
+     *
+     * <p>No more per-entity renderer lookup — the EntityRenderer reads
+     * model ID and render context directly from each entity.
+     */
     private void renderEntities(Collection<Entity> entities, float partialTicks, float deltaTime) {
         client.getWindow().setRenderPhase("Render Entities");
 
@@ -238,24 +243,16 @@ public class MasterRenderer {
         float camZ = (float) lerp(cameraEntity.prevZ, cameraEntity.getPosition().getZ(), partialTicks);
 
         for (Entity entity : entities) {
-            EntityKey<?> renderKey = entity.getKey();
-
-            if (client.getPlayer() instanceof PlayerEntity playerEntity
-                    && entity.getKey() == client.getPlayer().getKey()
-                    && playerEntity.isMorphed()) {
-                renderKey = playerEntity.getMorphTarget();
-            }
-
-            EntityRenderer<Entity> renderer = entityRenderDispatcher.getRenderer(renderKey);
-            if (renderer == null) continue;
-
+            // Interpolate position for culling checks
             float x = fLerp((float) entity.prevX, (float) entity.getPosition().getX(), partialTicks);
             float y = fLerp((float) entity.prevY, (float) entity.getPosition().getY(), partialTicks);
             float z = fLerp((float) entity.prevZ, (float) entity.getPosition().getZ(), partialTicks);
 
+            // Distance culling
             float dx = x - camX, dy = y - camY, dz = z - camZ;
             if (dx*dx + dy*dy + dz*dz > ENTITY_RENDER_DISTANCE * ENTITY_RENDER_DISTANCE) {
-                entitiesCulled++; continue;
+                entitiesCulled++;
+                continue;
             }
 
             // Frustum culling
@@ -264,9 +261,10 @@ public class MasterRenderer {
                 continue;
             }
 
+            // Render entity using universal renderer
             MatrixStack entityPoseStack = new MatrixStack();
             entityPoseStack.push();
-            renderer.render(entity, partialTicks, entityPoseStack);
+            entityRenderer.render(entity, partialTicks, entityPoseStack);
             entityPoseStack.pop();
 
             entitiesRendered++;
@@ -306,6 +304,9 @@ public class MasterRenderer {
         // Free all cached static VBOs — they will be re-baked lazily.
         GpuModelBaker.getInstance().evictAll();
 
+        // Clear entity renderer model cache
+        entityRenderer.clearCache();
+
         if (chunkRenderer != null) {
             chunkRenderer.disposeAll();
         }
@@ -325,7 +326,7 @@ public class MasterRenderer {
     // ── Getters ────────────────────────────────────────────────────────────────
 
     public ModelRenderer getModelRenderer()                         { return modelRenderer; }
-    public EntityRenderDispatcher getEntityRenderDispatcher()       { return entityRenderDispatcher; }
+    public EntityRenderer getEntityRenderer()                       { return entityRenderer; }
     public Camera getCamera()                                       { return camera; }
     public ChunkRenderer getChunkRenderer()                        { return chunkRenderer; }
     public BlockModelLoader getBlockModelLoader()                   { return blockModelLoader; }

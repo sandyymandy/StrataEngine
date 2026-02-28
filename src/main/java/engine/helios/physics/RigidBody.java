@@ -1,7 +1,10 @@
 package engine.helios.physics;
 
-import engine.strata.util.math.Vec3d;
+import engine.strata.util.Vec3d;
 import engine.strata.world.SpatialObject;
+
+import static engine.helios.physics.PhysicsManager.GRAVITY;
+import static engine.strata.core.StrataCore.TICK_DELTA;
 
 /**
  * A physics-enabled SpatialObject with velocity, forces, and collision.
@@ -13,8 +16,8 @@ public abstract class RigidBody extends SpatialObject {
     protected Vec3d velocity = new Vec3d(0, 0, 0);
     protected Vec3d acceleration = new Vec3d(0, 0, 0);
     protected float mass = 1.0f; // kg
-    protected float friction = 0.6f; // Ground friction coefficient  
-    protected float drag = 0.1f; // Air resistance
+    protected float surfaceFriction = 0.91f;
+    protected float surfaceRestitution = 0.0f;
     protected float restitution = 0.0f; // Bounciness (0 = no bounce, 1 = perfect bounce)
 
     // Physics state
@@ -27,14 +30,11 @@ public abstract class RigidBody extends SpatialObject {
     protected AABB collisionBox;
 
     // Physics constants
-    private static final double GRAVITY = -17.0; // blocks per second squared
+     // blocks per second squared
     private static final double TERMINAL_VELOCITY = -78.4; // blocks per second
     private static final double GROUND_FRICTION_MULTIPLIER = 0.91;
     private static final double AIR_FRICTION_MULTIPLIER = 0.98;
     private static final double EPSILON = 0.001; // Small value for collision detection
-
-    // Tick rate constant (20 TPS)
-    private static final double TICK_DELTA = 0.05; // 1/20th of a second
 
     public RigidBody() {
         this.collisionBox = new AABB(-0.3, 0.0, -0.3, 0.3, 1.8, 0.3);
@@ -49,37 +49,35 @@ public abstract class RigidBody extends SpatialObject {
         super.tick();
 
         if (noClip) {
-            // In noclip mode, just apply velocity directly
-            position.add(velocity.getX() * TICK_DELTA, velocity.getY() * TICK_DELTA, velocity.getZ() * TICK_DELTA);
+            this.transform.getPosition().add(velocity.multiply(TICK_DELTA));
             return;
         }
 
-        // Apply gravity
+        // 1. Apply Gravity
         if (hasGravity && !onGround) {
             acceleration = acceleration.add(0, GRAVITY, 0);
         }
 
-        // Update velocity from acceleration
-        velocity = velocity.add(
-                acceleration.getX() * TICK_DELTA,
-                acceleration.getY() * TICK_DELTA,
-                acceleration.getZ() * TICK_DELTA
-        );
+        // 2. Integration: Velocity += Accel * dt
+        velocity = velocity.add(acceleration.multiply(TICK_DELTA));
 
-        // Apply drag (air resistance)
-        velocity = velocity.multiply(AIR_FRICTION_MULTIPLIER, AIR_FRICTION_MULTIPLIER, AIR_FRICTION_MULTIPLIER);
+        // 3. Apply Friction (Block Dependent)
+        // Air friction is constant, ground friction depends on what you stand on
+        double frictionFactor = onGround ? surfaceFriction : AIR_FRICTION_MULTIPLIER;
 
-        // Apply ground friction if on ground
-        if (onGround) {
-            velocity = velocity.multiply(GROUND_FRICTION_MULTIPLIER, 1.0, GROUND_FRICTION_MULTIPLIER);
+        double vx = velocity.getX() * frictionFactor;
+        double vz = velocity.getZ() * frictionFactor;
+        double vy = velocity.getY();
+
+        // Air resistance on Y (Terminal Velocity)
+        if (!onGround) {
+            vy *= AIR_FRICTION_MULTIPLIER;
+            if (vy < TERMINAL_VELOCITY) vy = TERMINAL_VELOCITY;
         }
 
-        // Clamp to terminal velocity
-        if (velocity.getY() < TERMINAL_VELOCITY) {
-            velocity = new Vec3d(velocity.getX(), TERMINAL_VELOCITY, velocity.getZ());
-        }
+        velocity = new Vec3d(vx, vy, vz);
 
-        // Reset acceleration (forces need to be re-applied each tick)
+        // 4. Reset acceleration for next tick forces
         acceleration = new Vec3d(0, 0, 0);
     }
 
@@ -118,7 +116,7 @@ public abstract class RigidBody extends SpatialObject {
      * Gets the world-space AABB for this rigid body.
      */
     public AABB getBoundingBox() {
-        return collisionBox.offset(position);
+        return collisionBox.offset(transform.getPosition());
     }
 
     /**
@@ -194,12 +192,9 @@ public abstract class RigidBody extends SpatialObject {
         this.mass = Math.max(0.1f, mass); // Prevent zero or negative mass
     }
 
-    public float getFriction() {
-        return friction;
-    }
-
-    public void setFriction(float friction) {
-        this.friction = friction;
+    public void setSurfaceProperties(float friction, float restitution) {
+        this.surfaceFriction = friction;
+        this.surfaceRestitution = restitution;
     }
 
     public float getRestitution() {
@@ -212,5 +207,13 @@ public abstract class RigidBody extends SpatialObject {
 
     public AABB getCollisionBox() {
         return collisionBox;
+    }
+
+    public float getWidth() {
+        return (float) collisionBox.getWidth();
+    }
+
+    public float getHeight() {
+        return (float) collisionBox.getHeight();
     }
 }

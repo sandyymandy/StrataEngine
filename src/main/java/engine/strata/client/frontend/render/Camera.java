@@ -2,20 +2,21 @@ package engine.strata.client.frontend.render;
 
 import engine.strata.client.StrataClient;
 import engine.strata.entity.Entity;
+import engine.strata.util.Vec3d;
 import org.joml.*;
 import engine.strata.client.frontend.window.Window;
 
 import java.lang.Math;
 
 public class Camera {
-    private final Vector3d pos = new Vector3d();
+    private final Vec3d pos = new Vec3d();
     private final Quaternionf rotation = new Quaternionf();
     private float fov;
     private float Z_NEAR;
     private float Z_FAR;
     private float pitch;
     private float yaw;
-    private final Vector3d prevPos = new Vector3d();
+    private final Vec3d prevPos = new Vec3d();
     private float prevPitch;
     private float prevYaw;
     private Entity focusedEntity;
@@ -143,7 +144,7 @@ public class Camera {
         viewMatrix.identity()
                 .rotate((float) Math.toRadians(pitch), 1, 0, 0)
                 .rotate((float) Math.toRadians(yaw), 0, 1, 0)
-                .translate((float) -pos.x(), (float) -pos.y(), (float) -pos.z());
+                .translate((float) -pos.getX(), (float) -pos.getY(), (float) -pos.getZ());
     }
 
     private double lerp(double pct, double start, double end) {
@@ -190,7 +191,7 @@ public class Camera {
                                                float maxDistance) {
         return frustum.testSphereWithDistance(
                 x, y, z, radius,
-                (float) pos.x, (float) pos.y, (float) pos.z,
+                (float) pos.getX(), (float) pos.getY(), (float) pos.getZ(),
                 maxDistance
         );
     }
@@ -203,7 +204,7 @@ public class Camera {
                                              float maxDistance) {
         return frustum.testAabbWithDistance(
                 minX, minY, minZ, maxX, maxY, maxZ,
-                (float) pos.x, (float) pos.y, (float) pos.z,
+                (float) pos.getX(), (float) pos.getY(), (float) pos.getZ(),
                 maxDistance
         );
     }
@@ -212,7 +213,7 @@ public class Camera {
         this.pos.set(x, y, z);
     }
 
-    public Vector3d getPos() {
+    public Vec3d getPos() {
         return this.pos;
     }
 

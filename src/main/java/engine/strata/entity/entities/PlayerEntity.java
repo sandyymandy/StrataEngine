@@ -3,10 +3,9 @@ package engine.strata.entity.entities;
 import engine.strata.client.input.keybind.Keybinds;
 import engine.strata.entity.Entity;
 import engine.strata.entity.util.EntityKey;
-import engine.strata.util.math.BlockPos;
+import engine.strata.util.BlockPos;
 import engine.strata.util.math.BlockRaycast;
 import engine.strata.world.World;
-import engine.strata.world.block.Blocks;
 
 import java.util.List;
 
@@ -41,12 +40,13 @@ public class PlayerEntity extends Entity {
 
     public PlayerEntity(EntityKey<?> key, World world) {
         super(key, world);
+        setModelOffset(0, 0, 0.1f);
     }
 
     // Movement speeds
-    private float groundSpeed = 4.317f; // blocks per second (similar to Minecraft sprint)
+    private float groundSpeed = 7f; // blocks per second (similar to Minecraft sprint)
     private float airSpeed = 0.02f; // Air control multiplier
-    private float jumpStrength = 10.0f; // Upward velocity for jumping
+    private float jumpStrength = 15.0f; // Upward velocity for jumping
 
     @Override
     public void tick() {
@@ -86,9 +86,9 @@ public class PlayerEntity extends Entity {
         // Speed modifications
         float speed = groundSpeed;
         if (Keybinds.FAST.isPressedTick()) {
-            speed = 8.0f;
+            speed = 12.0f;
         } else if (Keybinds.CROUCH.isPressedTick()) {
-            speed = 1.0f;
+            speed = 4.0f;
         }
 
         // Apply movement based on mode
@@ -129,7 +129,7 @@ public class PlayerEntity extends Entity {
         }
 
         if (Keybinds.DEBUG_PLACE.isPressedTick()) {
-            this.world.setBlock(new BlockPos(position), (short) 2);
+            this.world.setBlock(new BlockPos(transform.getPosition()), (short) 2);
         }
 
         if (Keybinds.REMOVE.isJustPressedTick()) {

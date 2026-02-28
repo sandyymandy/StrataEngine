@@ -1,6 +1,6 @@
 package engine.helios.physics;
 
-import engine.strata.util.math.BlockPos;
+import engine.strata.util.BlockPos;
 import engine.strata.world.World;
 import engine.strata.world.block.Block;
 import engine.strata.world.chunk.SubChunk;

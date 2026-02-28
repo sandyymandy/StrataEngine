@@ -53,21 +53,6 @@ public class TextureArrayBuilder {
         return buildArray(ids, tileSize);
     }
 
-    /**
-     * Legacy method for backward compatibility with old BlockTexture system.
-     * Use buildArrayFromBlocks(blocks, modelLoader, tileSize) instead.
-     */
-//    @Deprecated
-//    public static DynamicTextureArray buildArrayFromBlocks(Collection<Block> blocks, int tileSize) {
-//        LOGGER.warn("Using deprecated buildArrayFromBlocks without BlockModelLoader");
-//        LOGGER.warn("Falling back to old texture collection system");
-//
-//        Set<Identifier> ids = collectTextureIdsLegacy(blocks);
-//        ids.add(Identifier.ofEngine(MISSING_TEXTURE_PATH));
-//
-//        LOGGER.info("Collected {} unique texture identifiers (legacy mode)", ids.size());
-//        return buildArray(ids, tileSize);
-//    }
 
     /**
      * Builds a texture array from an explicit set of texture identifiers.
@@ -166,28 +151,6 @@ public class TextureArrayBuilder {
             }
         }
     }
-//
-//    /**
-//     * Legacy texture collection from old BlockTexture system.
-//     * Used as fallback when BlockModelLoader is not available.
-//     */
-//    @Deprecated
-//    private static Set<Identifier> collectTextureIdsLegacy(Collection<Block> blocks) {
-//        Set<Identifier> ids = new HashSet<>();
-//        for (Block block : blocks) {
-//            if (block.isAir()) continue;
-//            BlockTexture tex = block.getTexture();
-//            if (tex == null) continue;
-//            for (BlockTexture.Face face : BlockTexture.Face.values()) {
-//                Identifier id = tex.getTextureIdForFace(face);
-//                if (id != null) {
-//                    ids.add(id);
-//                    LOGGER.debug("Block {} face {} → {}", block.getId(), face, id);
-//                }
-//            }
-//        }
-//        return ids;
-//    }
 
     /**
      * Writes a tileSize×tileSize RGBA image into the provided ByteBuffer.

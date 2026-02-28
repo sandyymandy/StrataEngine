@@ -1,4 +1,4 @@
-package engine.strata.util.math;
+package engine.strata.util;
 
 import org.joml.Quaternionf;
 import org.joml.Vector3d;
@@ -86,6 +86,10 @@ public class Vec3d {
         return this.add(vec.x, vec.y, vec.z);
     }
 
+    public void add(Vector3d vec) {
+        this.add(vec.x, vec.y, vec.z);
+    }
+
     public Vec3d add(double value) {
         return this.add(value, value, value);
     }
@@ -166,7 +170,7 @@ public class Vec3d {
         return sqrt(dx * dx + dy * dy + dz * dz);
     }
 
-    public double distanceSquaredTo(Vec3d other) {
+    public double distanceSquared(Vec3d other) {
         double dx = this.x - other.x;
         double dy = this.y - other.y;
         double dz = this.z - other.z;
@@ -184,5 +188,4 @@ public class Vec3d {
                 this.x * vec.y - this.y * vec.x
         );
     }
-
 }

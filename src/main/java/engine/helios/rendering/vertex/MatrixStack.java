@@ -1,6 +1,7 @@
 package engine.helios.rendering.vertex;
 
 import org.joml.Matrix4f;
+import org.joml.Quaternionf;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -10,6 +11,10 @@ public class MatrixStack {
 
     public MatrixStack() {
         stack.push(new Matrix4f());
+    }
+
+    public MatrixStack(Matrix4f mat) {
+        stack.push(mat);
     }
 
     public void push() {
@@ -22,6 +27,10 @@ public class MatrixStack {
 
     public void translate(float x, float y, float z) {
         stack.peek().translate(x, y, z);
+    }
+
+    public void rotate(Quaternionf quaternion) {
+        stack.peek().rotate(quaternion);
     }
 
     public void rotateXYZ(float angle, float x, float y, float z) {

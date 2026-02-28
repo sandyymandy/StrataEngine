@@ -4,17 +4,12 @@ import engine.helios.rendering.RenderSystem;
 import engine.helios.rendering.shader.ShaderManager;
 import engine.strata.api.ClientFrontEndInitializer;
 import engine.strata.client.StrataClient;
-import engine.strata.client.frontend.render.renderer.entity.MikaEntityRenderer;
 import engine.strata.client.frontend.window.Window;
 import engine.strata.client.frontend.render.Camera;
 import engine.strata.client.frontend.render.renderer.MasterRenderer;
-import engine.strata.client.frontend.render.renderer.entity.BiaEntityRenderer;
-import engine.strata.client.frontend.render.renderer.entity.PlayerEntityRenderer;
-import engine.strata.client.frontend.render.renderer.entity.util.EntityRendererRegistry;
 import engine.strata.core.entrypoint.EntrypointManager;
 import engine.strata.debug.DisplayDebugInfo;
 import engine.strata.entity.Entity;
-import engine.strata.registry.registries.EntityRegistry;
 import engine.strata.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
@@ -22,6 +17,21 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
 
+/**
+ * Client frontend that manages rendering and window.
+ *
+ * <h3>Entity Rendering Simplification:</h3>
+ * The old system required registering a renderer for each entity type:
+ * <pre>
+ * EntityRendererRegistry.register(EntityRegistry.PLAYER, PlayerEntityRenderer::new);
+ * EntityRendererRegistry.register(EntityRegistry.BIA, BiaEntityRenderer::new);
+ * EntityRendererRegistry.register(EntityRegistry.MIKA, MikaEntityRenderer::new);
+ * </pre>
+ *
+ * The new system requires NO registration at all. Entities provide their own
+ * rendering configuration through Entity.getModelId() and Entity.getRenderContext().
+ * The universal EntityRenderer handles everything automatically.
+ */
 public class ClientFrontEnd {
     public static final Logger LOGGER = LoggerFactory.getLogger("ClientFrontEnd");
     private final MasterRenderer masterRenderer;
@@ -127,25 +137,25 @@ public class ClientFrontEnd {
 
     private void init() {
         setFramerateCap(FramerateCap.FPS_180);
-        EntityRendererRegistry.register(EntityRegistry.PLAYER, PlayerEntityRenderer::new);
-        EntityRendererRegistry.register(EntityRegistry.BIA, BiaEntityRenderer::new);
-        EntityRendererRegistry.register(EntityRegistry.MIKA, MikaEntityRenderer::new);
+        LOGGER.info("Client frontend initialized with universal entity rendering");
     }
 
     private void initHelios() {
         LOGGER.info("Initializing Helios rendering system...");
 
         ShaderManager.register(Identifier.ofEngine("generic_3d"),
-                Identifier.ofEngine("included/vertex"),
-                Identifier.ofEngine("included/fragment")
+                Identifier.ofEngine("core/vertex"),
+                Identifier.ofEngine("core/fragment")
         );
+
         ShaderManager.register(Identifier.ofEngine("entity_cutout"),
-                Identifier.ofEngine("included/vertex"),
+                Identifier.ofEngine("core/vertex"),
                 Identifier.ofEngine("core/entity_cutout")
         );
+
         ShaderManager.register(Identifier.ofEngine("chunk"),
-                Identifier.ofEngine("included/chunk_vertex"),
-                Identifier.ofEngine("included/chunk_fragment")
+                Identifier.ofEngine("core/chunk_vertex"),
+                Identifier.ofEngine("core/chunk_fragment")
         );
 
         ShaderManager.register(Identifier.ofEngine("outline"),
@@ -208,6 +218,4 @@ public class ClientFrontEnd {
             return displayName;
         }
     }
-
-    // TODO: Fixed the bug where even though this system supports infinite height limit the chunk rendering stops at a certain distance
 }

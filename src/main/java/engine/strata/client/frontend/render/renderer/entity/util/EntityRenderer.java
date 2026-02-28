@@ -1,133 +1,178 @@
-package engine.strata.client.frontend.render.renderer.entity.util;
+package engine.strata.client.frontend.render.renderer.entity;
 
 import engine.helios.rendering.vertex.MatrixStack;
 import engine.strata.client.StrataClient;
-import engine.strata.client.frontend.render.model.io.ModelManager;
 import engine.strata.client.frontend.render.model.StrataModel;
 import engine.strata.client.frontend.render.model.StrataSkin;
+import engine.strata.client.frontend.render.model.io.ModelManager;
 import engine.strata.entity.Entity;
 import engine.strata.util.Identifier;
+import engine.strata.util.Vec3f;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.HashMap;
+import java.util.Map;
 
 import static engine.strata.util.math.Math.fLerp;
 
 /**
- * Base class for rendering entities using the StrataModel system.
- * Handles texture layers, batching, render order, and animations.
+ * Universal entity renderer that handles all entity types.
+ *
+ * <h3>Design Philosophy:</h3>
+ * Unlike the old system where each entity type needed its own renderer subclass,
+ * this renderer reads all configuration directly from the entity:
+ * <ul>
+ *   <li>{@link Entity#getModelId()} → which model to render</li>
+ *   <li>{@link Entity#getRenderContext()} → how to customize appearance</li>
+ * </ul>
+ *
+ * <h3>Usage:</h3>
+ * <pre>
+ * // In MasterRenderer:
+ * EntityRenderer entityRenderer = new EntityRenderer();
+ * entityRenderer.render(entity, partialTicks, poseStack);
+ *
+ * // No per-entity registration needed!
+ * </pre>
+ *
+ * <h3>How it works:</h3>
+ * 1. Reads model ID from entity
+ * 2. Loads/caches model and skin
+ * 3. Reads render context from entity
+ * 4. Applies transformations
+ * 5. Passes model, skin, and context to ModelRenderer
  */
-public abstract class EntityRenderer<T extends Entity> {
-    protected final EntityRenderDispatcher dispatcher;
-    private Identifier modelId;
-    private StrataModel model;
-    private StrataSkin skin;
-    private boolean modelLoaded = false;
+public class EntityRenderer {
+    private static final Logger LOGGER = LoggerFactory.getLogger("EntityRenderer");
 
-    public EntityRenderer(EntityRendererFactory.Context ctx) {
-        this.dispatcher = ctx.dispatcher;
-    }
+    // Cache loaded models per model ID to avoid repeated disk access
+    private final Map<Identifier, ModelCache> modelCache = new HashMap<>();
 
     /**
-     * The main method called every frame to render the entity.
+     * Renders an entity using its configured model and render context.
      *
-     * @param entity       The entity to render
-     * @param partialTicks The fraction of time between ticks (0.0 to 1.0) for smoothing
-     * @param poseStack    The MatrixStack for position/rotation
+     * @param entity The entity to render
+     * @param partialTicks Interpolation factor (0.0 to 1.0)
+     * @param poseStack Transform stack for positioning
      */
-    public void render(T entity, float partialTicks, MatrixStack poseStack) {
-        // Lazy load model and skin on first render
-        if (!modelLoaded) {
-            loadModel(entity);
-            if (model == null || skin == null) {
-                return; // Failed to load
-            }
+    public void render(Entity entity, float partialTicks, MatrixStack poseStack) {
+        // Get the model to use (can be dynamic per entity)
+        Identifier modelId = entity.getModelId();
+        if (modelId == null) {
+            LOGGER.warn("Entity {} has no model ID", entity.getClass().getSimpleName());
+            return;
         }
 
-        if (modelId != getModelId()) loadModel(entity);
+        // Load or retrieve cached model
+        ModelCache cache = getOrLoadModel(modelId);
+        if (cache == null || cache.model == null || cache.skin == null) {
+            return; // Failed to load
+        }
 
+        // Get entity's render customization
+        EntityRenderContext renderContext = entity.getRenderContext();
+
+        // Apply entity transforms
         applyTransforms(entity, partialTicks, poseStack);
 
         poseStack.push();
 
         // Scale from model space (16x16x16) to world space (1x1x1)
         poseStack.scale(1.0f / 16.0f, 1.0f / 16.0f, 1.0f / 16.0f);
-
         poseStack.scale(entity.getScale().getX(), entity.getScale().getY(), entity.getScale().getZ());
 
-        // Render all texture layers in priority order
+        // Render with context-aware model renderer
         StrataClient.getInstance().getMasterRenderer()
-                .getModelRenderer().render(model, skin, poseStack);
+                .getModelRenderer().render(cache.model, cache.skin, poseStack, renderContext);
 
         poseStack.pop();
     }
 
     /**
-     * Applies transformations to the entity with interpolation for smooth movement.
+     * Applies position and rotation transforms with interpolation for smooth movement.
+     * Uses quaternion slerp for rotation and applies model offset.
      */
-    private void applyTransforms(T entity, float partialTicks, MatrixStack poseStack) {
-        // Interpolate position between previous and current
+    private void applyTransforms(Entity entity, float partialTicks, MatrixStack poseStack) {
+        // Interpolate position
         float x = fLerp((float) entity.prevX, (float) entity.getPosition().getX(), partialTicks);
         float y = fLerp((float) entity.prevY, (float) entity.getPosition().getY(), partialTicks);
         float z = fLerp((float) entity.prevZ, (float) entity.getPosition().getZ(), partialTicks);
 
-        // Interpolate rotation between previous and current
-        float xR = fLerp(entity.prevRotationX, entity.getRotation().getX(), partialTicks);
-        float yR = fLerp(entity.prevRotationY, entity.getRotation().getY(), partialTicks);
-        float zR = fLerp(entity.prevRotationZ, entity.getRotation().getZ(), partialTicks);
-
+        // Apply base position
         poseStack.translate(x, y, z);
-        poseStack.rotateXYZ(xR, yR, zR);
+
+        // Interpolate rotation using quaternion slerp (spherical linear interpolation)
+        // This is much smoother than Euler angle interpolation!
+        org.joml.Quaternionf currentQuat = new org.joml.Quaternionf(entity.getRotation());
+        org.joml.Quaternionf prevQuat = new org.joml.Quaternionf(entity.prevRotationQuat);
+        org.joml.Quaternionf interpolatedQuat = prevQuat.slerp(currentQuat, partialTicks);
+
+        // Apply rotation from quaternion
+        poseStack.rotate(interpolatedQuat);
+
+        // Apply model offset (in blocks, relative to entity)
+        Vec3f offset = entity.getModelOffset();
+        if (offset.getX() != 0 || offset.getY() != 0 || offset.getZ() != 0) {
+            poseStack.translate(offset.getX(), offset.getY(), offset.getZ());
+        }
+
+        // Apply scale
         poseStack.scale(entity.getScale().getX(), entity.getScale().getY(), entity.getScale().getZ());
     }
 
     /**
-     * Loads the model, skin, and initializes the animation controller.
-     * Override to customize loading behavior.
+     * Gets model from cache or loads it if not present.
      */
-    protected void loadModel(T entity) {
-        try {
-            modelId = getModelId();
-            model = ModelManager.getModel(modelId);
-            skin = ModelManager.getSkin(modelId);
+    private ModelCache getOrLoadModel(Identifier modelId) {
+        ModelCache cache = modelCache.get(modelId);
+        if (cache != null) {
+            return cache;
+        }
 
-            modelLoaded = true;
+        // Load model and skin
+        try {
+            StrataModel model = ModelManager.getModel(modelId);
+            StrataSkin skin = ModelManager.getSkin(modelId);
 
             if (model == null || skin == null) {
-                throw new RuntimeException("Failed to load model or skin: " + modelId);
+                LOGGER.error("Failed to load model or skin: {}", modelId);
+                // Cache null result to prevent repeated load attempts
+                cache = new ModelCache(null, null);
+            } else {
+                cache = new ModelCache(model, skin);
             }
+
+            modelCache.put(modelId, cache);
+            return cache;
         } catch (Exception e) {
-            // Mark as loaded to prevent retry spam
-            modelLoaded = true;
+            LOGGER.error("Error loading model {}", modelId, e);
+            // Cache null result
+            ModelCache errorCache = new ModelCache(null, null);
+            modelCache.put(modelId, errorCache);
+            return errorCache;
         }
     }
 
-
     /**
-     * Returns the model identifier for this entity.
-     * Must be implemented by subclasses.
+     * Clears the model cache, forcing reload on next render.
+     * Should be called when models are reloaded.
      */
-    public abstract Identifier getModelId();
-
-    // ============================================================================
-    // Accessors
-    // ============================================================================
-
-    /**
-     * Gets the loaded model instance.
-     */
-    public StrataModel getModel() {
-        return model;
+    public void clearCache() {
+        modelCache.clear();
+        LOGGER.info("Entity renderer model cache cleared");
     }
 
     /**
-     * Gets the loaded skin instance.
+     * Simple cache entry for model and skin.
      */
-    public StrataSkin getSkin() {
-        return skin;
-    }
+    private static class ModelCache {
+        final StrataModel model;
+        final StrataSkin skin;
 
-    /**
-     * Checks if the model and animation controller are loaded.
-     */
-    protected boolean isModelLoaded() {
-        return modelLoaded && model != null;
+        ModelCache(StrataModel model, StrataSkin skin) {
+            this.model = model;
+            this.skin = skin;
+        }
     }
 }

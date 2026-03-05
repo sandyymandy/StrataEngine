@@ -42,12 +42,12 @@ public abstract class SpatialObject {
     // ==========================================
 
     public void setPosition(double x, double y, double z) {
-        this.transform.getPosition().set(x, y, z);
+        this.getPosition().set(x, y, z);
         this.isDirty = true;
     }
 
     public void move(float dx, float dy, float dz) {
-        this.transform.getPosition().add(dx, dy, dz);
+        this.getPosition().add(dx, dy, dz);
         this.isDirty = true;
     }
 
@@ -55,7 +55,7 @@ public abstract class SpatialObject {
      * Sets rotation using a Quaternion.
      */
     public void setRotation(Quaternionf quaternion) {
-        this.transform.getRotation().set(quaternion);
+        this.getRotation().set(quaternion);
         this.isDirty = true;
     }
 
@@ -64,7 +64,7 @@ public abstract class SpatialObject {
      * Uses XYZ rotation order.
      */
     public void setRotation(float x, float y, float z) {
-        this.transform.getRotation().rotationXYZ(x, y, z);
+        this.getRotation().rotationXYZ(x, y, z);
         this.isDirty = true;
     }
 
@@ -72,7 +72,7 @@ public abstract class SpatialObject {
      * Sets rotation from Euler angles in Degrees (helper).
      */
     public void setRotationDegrees(float x, float y, float z) {
-        this.transform.getRotation().rotationXYZ(toRadians(x), toRadians(y), toRadians(z));
+        this.getRotation().rotationXYZ(toRadians(x), toRadians(y), toRadians(z));
         this.isDirty = true;
     }
 
@@ -80,7 +80,7 @@ public abstract class SpatialObject {
      * Rotates by Euler angles in radians (adds to current rotation).
      */
     public void rotate(float x, float y, float z) {
-        this.transform.getRotation().rotateXYZ(x, y, z);
+        this.getRotation().rotateXYZ(x, y, z);
         this.isDirty = true;
     }
 
@@ -88,7 +88,7 @@ public abstract class SpatialObject {
      * Rotates by Euler angles in degrees (adds to current rotation).
      */
     public void rotateDegrees(float x, float y, float z) {
-        this.transform.getRotation().rotateXYZ(toRadians(x), toRadians(y), toRadians(z));
+        this.getRotation().rotateXYZ(toRadians(x), toRadians(y), toRadians(z));
         this.isDirty = true;
     }
 
@@ -97,17 +97,17 @@ public abstract class SpatialObject {
      * Extracted from the current quaternion.
      */
     public Vec3f getEulerAngles() {
-        Vector3f euler = this.transform.getRotation().getEulerAnglesXYZ(new Vector3f());
+        Vector3f euler = this.getRotation().getEulerAnglesXYZ(new Vector3f());
         return new Vec3f(euler.x, euler.y, euler.z);
     }
 
     public void setScale(float s) {
-        this.transform.getScale().set(s, s, s);
+        this.getScale().set(s, s, s);
         this.isDirty = true;
     }
 
     public void setScale(float x, float y, float z) {
-        this.transform.getScale().set(x, y, z);
+        this.getScale().set(x, y, z);
         this.isDirty = true;
     }
 
@@ -128,9 +128,9 @@ public abstract class SpatialObject {
 
     protected void recalculateMatrix() {
         modelMatrix.identity()
-                .translate(transform.getPosition().toVector3f())
-                .rotate(transform.getRotation()) // Quaternion rotation
-                .scale(transform.getScale().toVector3f());
+                .translate(this.getPosition().toVector3f())
+                .rotate(this.getRotation()) // Quaternion rotation
+                .scale(this.getScale().toVector3f());
 
         isDirty = false;
     }
@@ -145,21 +145,21 @@ public abstract class SpatialObject {
      */
     public Vector3f getForwardVector() {
         // Transform the forward vector (0, 0, -1) by our rotation
-        return transform.getRotation().transform(new Vector3f(0, 0, -1));
+        return this.getRotation().transform(new Vector3f(0, 0, -1));
     }
 
     /**
      * Gets the right direction vector of this object.
      */
     public Vector3f getRightVector() {
-        return transform.getRotation().transform(new Vector3f(1, 0, 0));
+        return this.getRotation().transform(new Vector3f(1, 0, 0));
     }
 
     /**
      * Gets the up direction vector of this object.
      */
     public Vector3f getUpVector() {
-        return transform.getRotation().transform(new Vector3f(0, 1, 0));
+        return this.getRotation().transform(new Vector3f(0, 1, 0));
     }
 
     // ==========================================

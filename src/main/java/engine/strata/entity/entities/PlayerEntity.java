@@ -40,7 +40,7 @@ public class PlayerEntity extends Entity {
 
     public PlayerEntity(EntityKey<?> key, World world) {
         super(key, world);
-        setModelOffset(0, 0, 0.1f);
+        setModelPosition(0, 0, 0.1f);
     }
 
     // Movement speeds
@@ -129,7 +129,7 @@ public class PlayerEntity extends Entity {
         }
 
         if (Keybinds.DEBUG_PLACE.isPressedTick()) {
-            this.world.setBlock(new BlockPos(transform.getPosition()), (short) 2);
+            this.world.setBlock(new BlockPos(this.getPosition()), (short) 2);
         }
 
         if (Keybinds.REMOVE.isJustPressedTick()) {

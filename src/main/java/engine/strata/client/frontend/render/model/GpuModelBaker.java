@@ -57,7 +57,7 @@ public final class GpuModelBaker {
                     continue;
                 }
 
-                bakeMesh(key, meshData, model.uScale(), model.vScale());
+                bakeMesh(key, model, meshData);
             }
         }
     }
@@ -79,11 +79,11 @@ public final class GpuModelBaker {
 
     // ── Baking dispatch ───────────────────────────────────────────────────────
 
-    private void bakeMesh(String key, StrataMeshData meshData, float uScale, float vScale) {
+    private void bakeMesh(String key, StrataModel model, StrataMeshData meshData) {
         if ("blockbench_cuboid".equals(meshData.type())) {
-            bakeCuboid(key, meshData, uScale, vScale);
+            bakeCuboid(key, model, meshData);
         } else {
-            bakeTriMesh(key, meshData, uScale, vScale);
+            bakeTriMesh(key, model, meshData);
         }
     }
 
@@ -96,7 +96,7 @@ public final class GpuModelBaker {
      * The per-mesh origin + rotation pivot is applied at draw time by
      * {@code ModelRenderer.applyMeshLocalTransform()} — NOT baked here.
      */
-    private void bakeCuboid(String key, StrataMeshData meshData, float uScale, float vScale) {
+    private void bakeCuboid(String key, StrataModel model, StrataMeshData meshData) {
         StrataMeshData.Cuboid cuboid = meshData.cuboid();
         if (cuboid == null) {
             LOGGER.warn("GpuModelBaker: cuboid data is null for key '{}'", key);
@@ -110,6 +110,11 @@ public final class GpuModelBaker {
         from.sub(inflate, inflate, inflate);
         to.add(inflate, inflate, inflate);
 
+        StrataModel.TextureInfo tex = model.getTextureInfo(meshData.textureSlot());
+
+        float uScale = tex.uScale();
+        float vScale = tex.vScale();
+
         float x0 = from.x, y0 = from.y, z0 = from.z;
         float x1 = to.x,   y1 = to.y,   z1 = to.z;
 
@@ -117,6 +122,7 @@ public final class GpuModelBaker {
         int         faceCount = cuboid.faces().size();
         FloatBuffer buf       = BufferUtils.createFloatBuffer(faceCount * 6 * 5);
         int[]       vc        = {0};
+
 
         cuboid.faces().forEach((faceName, face) -> {
             float[] uv = face.uv();
@@ -198,7 +204,7 @@ public final class GpuModelBaker {
      * Vertex positions are stored in mesh-local space; the origin/rotation are
      * applied at draw time via {@code u_Model}.
      */
-    private void bakeTriMesh(String key, StrataMeshData meshData, float uScale, float vScale) {
+    private void bakeTriMesh(String key, StrataModel model, StrataMeshData meshData) {
         StrataMeshData.Mesh mesh = meshData.mesh();
         if (mesh == null) {
             LOGGER.warn("GpuModelBaker: mesh data is null for key '{}'", key);
@@ -218,6 +224,11 @@ public final class GpuModelBaker {
 
         FloatBuffer buf = BufferUtils.createFloatBuffer(triangleCount * 3 * 5);
         int[]       vc  = {0};
+
+        StrataModel.TextureInfo tex = model.getTextureInfo(meshData.textureSlot());
+
+        float uScale = tex.uScale();
+        float vScale = tex.vScale();
 
         for (StrataMeshData.Face face : faces.values()) {
             List<String>         ids = face.getVertexIds();

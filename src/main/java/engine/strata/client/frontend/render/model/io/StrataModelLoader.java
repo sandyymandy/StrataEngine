@@ -29,8 +29,16 @@ public class StrataModelLoader {
 
             JsonObject root = GSON.fromJson(json, JsonObject.class);
 
-            int textureUVWidth = root.get("texture_uv_width").getAsInt();
-            int textureUVHeight = root.get("texture_uv_height").getAsInt();
+            // 1. Parse the new Textures Map
+            Map<String, StrataModel.TextureInfo> textureMap = new HashMap<>();
+            JsonObject texObj = root.getAsJsonObject("textures");
+            for (Map.Entry<String, JsonElement> entry : texObj.entrySet()) {
+                JsonObject info = entry.getValue().getAsJsonObject();
+                textureMap.put(entry.getKey(), new StrataModel.TextureInfo(
+                        info.get("uv_width").getAsInt(),
+                        info.get("uv_height").getAsInt()
+                ));
+            }
 
 
             // Parse texture slots
@@ -103,7 +111,7 @@ public class StrataModelLoader {
                 return createFallbackModel(id);
             }
 
-            return new StrataModel(id, rootBone, textureUVWidth, textureUVHeight, meshes);
+            return new StrataModel(id, rootBone, textureMap, meshes);
 
         } catch (Exception e) {
             LOGGER.error("Error loading model {}: {}", id, e.getMessage());
@@ -218,6 +226,9 @@ public class StrataModelLoader {
     private static StrataModel createFallbackModel(Identifier id) {
         LOGGER.warn("Creating fallback model for: {}", id);
 
+        Map<String, StrataModel.TextureInfo> textureMap = new HashMap<>();
+        textureMap.put("untextured", new StrataModel.TextureInfo(16, 16));
+
         // 1. Define the geometric boundaries (Standard 1x1x1 block size is -8 to 8 in Blockbench)
         Vector3f from = new Vector3f(0, 0, 0);
         Vector3f to = new Vector3f(1, 1, 1);
@@ -247,6 +258,6 @@ public class StrataModelLoader {
                 new Vector3f(0, 0, 0), Collections.singletonList("fallback_cuboid")
         );
 
-        return new StrataModel(id, root, 64, 64, meshes);
+        return new StrataModel(id, root, textureMap, meshes);
     }
 }

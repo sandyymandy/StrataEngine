@@ -4,6 +4,7 @@ import engine.helios.physics.RigidBody;
 import engine.strata.client.frontend.render.renderer.entity.EntityRenderContext;
 import engine.strata.entity.util.EntityKey;
 import engine.strata.util.Identifier;
+import engine.strata.util.Transform;
 import engine.strata.util.math.Math;
 import engine.strata.util.math.Random;
 import engine.strata.util.Vec3d;
@@ -66,7 +67,7 @@ public abstract class Entity extends RigidBody {
     private static final float FAST_HEAD_MOVEMENT_THRESHOLD = 60.0f; // If head moves this fast, snap body immediately
 
     // Model rendering offset (in blocks, relative to entity position)
-    protected Vec3f modelOffset = new Vec3f(0, 0, 0);
+    protected final Transform modelTransform = new Transform();
 
     // Previous state for interpolation
     public double prevX;
@@ -97,9 +98,9 @@ public abstract class Entity extends RigidBody {
     }
 
     public void tick(){
-        this.prevX = this.transform.getPosition().getX();
-        this.prevY = this.transform.getPosition().getY();
-        this.prevZ = this.transform.getPosition().getZ();
+        this.prevX = this.getPosition().getX();
+        this.prevY = this.getPosition().getY();
+        this.prevZ = this.getPosition().getZ();
         this.prevHeadYaw = this.headYaw;
         this.prevHeadPitch = this.headPitch;
         this.prevBodyYaw = this.bodyYaw;
@@ -323,28 +324,73 @@ public abstract class Entity extends RigidBody {
     }
 
     /**
-     * Gets the model rendering offset (in blocks).
-     * This offset is applied to the model's position relative to the entity position.
+     * Gets the model rendering transform.
+     * This transform is applied relative to the entity's position and rotation,
+     * allowing independent control of model position, rotation, and scale.
+     *
+     * @return The model transform
      */
-    public Vec3f getModelOffset() {
-        return modelOffset;
+    public Transform getModelTransform() {
+        return modelTransform;
     }
 
     /**
-     * Sets the model rendering offset (in blocks).
+     * Sets the model position offset (in blocks).
      * Positive X moves right, positive Y moves up, positive Z moves forward.
      *
-     * Example: setModelOffset(0, 0, -0.5f) moves model 0.5 blocks back
+     * Example: setModelPosition(0, 0, -0.5f) moves model 0.5 blocks back
      */
-    public void setModelOffset(float x, float y, float z) {
-        this.modelOffset.set(x, y, z);
+    public void setModelPosition(float x, float y, float z) {
+        this.modelTransform.getPosition().set(x, y, z);
     }
 
     /**
-     * Sets the model rendering offset from a vector.
+     * Sets the model position offset from a vector.
      */
-    public void setModelOffset(Vec3f offset) {
-        this.modelOffset.set(offset.getX(), offset.getY(), offset.getZ());
+    public void setModelPosition(Vec3d position) {
+        this.modelTransform.getPosition().set(position.getX(), position.getY(), position.getZ());
+    }
+
+    /**
+     * Sets the model rotation (in degrees).
+     * This rotation is applied after the entity's rotation.
+     */
+    public void setModelRotationDegrees(float yaw, float pitch, float roll) {
+        this.modelTransform.getRotation().rotationZYX(
+                Math.toRadians(roll),
+                Math.toRadians(pitch),
+                Math.toRadians(yaw)
+                );
+    }
+
+    /**
+     * Sets the model rotation (in radians).
+     */
+    public void setModelRotation(float pitch, float yaw, float roll) {
+        this.modelTransform.getRotation().rotationZYX(roll, pitch, yaw);
+    }
+
+    /**
+     * Sets the model rotation from a quaternion.
+     */
+    public void setModelRotation(Quaternionf rotation) {
+        this.modelTransform.getRotation().set(rotation);
+    }
+
+    /**
+     * Sets the model scale.
+     * This scale is applied in addition to the entity's scale.
+     * Default is (1, 1, 1).
+     */
+    public void setModelScale(float scale) {
+        this.modelTransform.getScale().set(scale, scale, scale);
+    }
+
+    /**
+     * Sets the model scale with separate X, Y, Z values.
+     */
+    public void setModelScale(float x, float y, float z) {
+        this.modelTransform.getScale().set(x, y, z);
     }
 
     public float getEyeHeight() {

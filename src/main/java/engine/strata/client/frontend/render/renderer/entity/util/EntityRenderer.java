@@ -1,13 +1,17 @@
-package engine.strata.client.frontend.render.renderer.entity;
+package engine.strata.client.frontend.render.renderer.entity.util;
 
 import engine.helios.rendering.vertex.MatrixStack;
 import engine.strata.client.StrataClient;
 import engine.strata.client.frontend.render.model.StrataModel;
 import engine.strata.client.frontend.render.model.StrataSkin;
 import engine.strata.client.frontend.render.model.io.ModelManager;
+import engine.strata.client.frontend.render.renderer.entity.EntityRenderContext;
 import engine.strata.entity.Entity;
 import engine.strata.util.Identifier;
+import engine.strata.util.Transform;
+import engine.strata.util.Vec3d;
 import engine.strata.util.Vec3f;
+import org.joml.Quaternionf;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -91,7 +95,7 @@ public class EntityRenderer {
 
     /**
      * Applies position and rotation transforms with interpolation for smooth movement.
-     * Uses quaternion slerp for rotation and applies model offset.
+     * Uses quaternion slerp for rotation and applies full model transform.
      */
     private void applyTransforms(Entity entity, float partialTicks, MatrixStack poseStack) {
         // Interpolate position
@@ -104,17 +108,32 @@ public class EntityRenderer {
 
         // Interpolate rotation using quaternion slerp (spherical linear interpolation)
         // This is much smoother than Euler angle interpolation!
-        org.joml.Quaternionf currentQuat = new org.joml.Quaternionf(entity.getRotation());
-        org.joml.Quaternionf prevQuat = new org.joml.Quaternionf(entity.prevRotationQuat);
-        org.joml.Quaternionf interpolatedQuat = prevQuat.slerp(currentQuat, partialTicks);
+        Quaternionf currentQuat = new Quaternionf(entity.getRotation());
+        Quaternionf prevQuat = new Quaternionf(entity.prevRotationQuat);
+        Quaternionf interpolatedQuat = prevQuat.slerp(currentQuat, partialTicks);
 
         // Apply rotation from quaternion
         poseStack.rotate(interpolatedQuat);
 
-        // Apply model offset (in blocks, relative to entity)
-        Vec3f offset = entity.getModelOffset();
-        if (offset.getX() != 0 || offset.getY() != 0 || offset.getZ() != 0) {
-            poseStack.translate(offset.getX(), offset.getY(), offset.getZ());
+        // Apply model transform (position, rotation, scale relative to entity)
+        Transform modelTransform = entity.getModelTransform();
+
+        // Model position offset
+        Vec3d modelPos = modelTransform.getPosition();
+        if (modelPos.getX() != 0 || modelPos.getY() != 0 || modelPos.getZ() != 0) {
+            poseStack.translate((float) modelPos.getX(), (float) modelPos.getY(), (float) modelPos.getZ());
+        }
+
+        // Model rotation (quaternion)
+        Quaternionf modelRot = modelTransform.getRotation();
+        if (!modelRot.equals(0, 0, 0, 1)) { // Check if not identity quaternion
+            poseStack.rotate(modelRot);
+        }
+
+        // Model scale
+        Vec3f modelScale = modelTransform.getScale();
+        if (modelScale.getX() != 1 || modelScale.getY() != 1 || modelScale.getZ() != 1) {
+            poseStack.scale(modelScale.getX(), modelScale.getY(), modelScale.getZ());
         }
 
         // Apply scale

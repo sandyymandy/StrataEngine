@@ -12,11 +12,13 @@ public class FolderManager {
 
         // Define sub-folders
         try {
-            ensureDirectory(rootDir);
-            ensureDirectory(rootDir.resolve("mods"));
-            ensureDirectory(rootDir.resolve("saves"));
-            ensureDirectory(rootDir.resolve("logs"));
-            ensureDirectory(rootDir.resolve("config"));
+            ensureDirectory(getRootDir());
+            ensureDirectory(getModsDir());
+            ensureDirectory(getSavesDir());
+            ensureDirectory(getLogsDir());
+            ensureDirectory(getConfigDir());
+            ensureDirectory(getShaderPackDir());
+            ensureDirectory(getResourcePackDir());
         } catch (IOException e) {
             throw new RuntimeException("Failed to initialize engine directories!", e);
         }
@@ -33,4 +35,6 @@ public class FolderManager {
     public static Path getSavesDir() { return rootDir.resolve("saves"); }
     public static Path getLogsDir() { return rootDir.resolve("logs"); }
     public static Path getConfigDir() { return rootDir.resolve("config"); }
+    public static Path getShaderPackDir() { return rootDir.resolve("shaderpacks"); }
+    public static Path getResourcePackDir() { return rootDir.resolve("resourcepacks"); }
 }

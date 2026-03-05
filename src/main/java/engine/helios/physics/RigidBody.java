@@ -49,7 +49,7 @@ public abstract class RigidBody extends SpatialObject {
         super.tick();
 
         if (noClip) {
-            this.transform.getPosition().add(velocity.multiply(TICK_DELTA));
+            this.getPosition().add(velocity.multiply(TICK_DELTA));
             return;
         }
 

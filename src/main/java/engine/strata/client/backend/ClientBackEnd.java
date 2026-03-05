@@ -5,9 +5,11 @@ import engine.strata.client.StrataClient;
 import engine.strata.client.input.InputSystem;
 import engine.strata.client.input.keybind.Keybinds;
 import engine.strata.core.entrypoint.EntrypointManager;
+import engine.strata.entity.Entity;
 import engine.strata.entity.entities.BiaEntity;
 import engine.strata.entity.entities.MikaEntity;
 import engine.strata.entity.entities.PlayerEntity;
+import engine.strata.entity.util.EntityKey;
 import engine.strata.event.events.KeyEvent;
 import engine.strata.event.events.MouseEvent;
 import engine.strata.event.events.MouseScrollEvent;
@@ -35,19 +37,19 @@ public class ClientBackEnd {
         this.player = EntityRegistry.PLAYER.create(world);
         this.player.setPosition(0, 90, 0);
         world.addEntity(player);
-        spawnTestEntities(5);
-        spawnTestEntities(10);
+        spawnTestEntities(EntityRegistry.BIA,5);
+        spawnTestEntities(EntityRegistry.MIKA,10);
 
         // Pre-load chunks around spawn
         LOGGER.info("Pre-loading spawn chunks...");
         world.preloadChunks(player.getPosition().getX(), player.getPosition().getY(), player.getPosition().getZ());
     }
 
-    private void spawnTestEntities(int pos) {
+    private void spawnTestEntities(EntityKey<?> entityKey, int pos) {
         LOGGER.info("Spawning test entities...");
 
         for (int i = 0; i < 15; i++) {
-            MikaEntity bia = EntityRegistry.MIKA.create(world);
+            Entity bia = entityKey.create(world);
             bia.setPosition(i + 1.5, 120, -pos+.5);
             bia.setHeadPitch((float) (i / 0.4));
             world.addEntity(bia);

@@ -11,15 +11,13 @@ import java.util.*;
 public class StrataModel {
     private final Identifier id;
     private final StrataBone root;
-    private final int textureUVWidth;
-    private final int textureUVHeight;
+    private final Map<String, TextureInfo> textures; // Keyed by texture name
     private final Map<String, StrataMeshData> meshes;
 
-    public StrataModel(Identifier id, StrataBone root, int textureUVWidth, int textureUVHeight, Map<String, StrataMeshData> meshes) {
+    public StrataModel(Identifier id, StrataBone root, Map<String, TextureInfo> textures, Map<String, StrataMeshData> meshes) {
         this.id = id;
         this.root = root;
-        this.textureUVWidth = textureUVWidth;
-        this.textureUVHeight = textureUVHeight;
+        this.textures = textures;
         this.meshes = meshes;
     }
 
@@ -29,14 +27,6 @@ public class StrataModel {
 
     public Identifier getId() {
         return id;
-    }
-
-    public float uScale() {
-        return 1.0f / textureUVWidth;
-    }
-
-    public float vScale() {
-        return 1.0f / textureUVHeight;
     }
 
     /**
@@ -69,5 +59,28 @@ public class StrataModel {
         for (StrataBone child : bone.getChildren()) {
             collectBones(child, map);
         }
+    }
+
+    public static class TextureInfo {
+        private final int uvWidth;
+        private final int uvHeight;
+
+        public TextureInfo(int uvWidth, int uvHeight) {
+            this.uvWidth = uvWidth;
+            this.uvHeight = uvHeight;
+        }
+
+        public float uScale() {
+            return 1.0f / uvWidth;
+        }
+
+        public float vScale() {
+            return 1.0f / uvHeight;
+        }
+    }
+
+    // Remove global uScale/vScale methods and use per-texture lookups
+    public TextureInfo getTextureInfo(String name) {
+        return textures.getOrDefault(name, new TextureInfo(16, 16));
     }
 }

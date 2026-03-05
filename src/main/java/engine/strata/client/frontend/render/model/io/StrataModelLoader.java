@@ -29,7 +29,7 @@ public class StrataModelLoader {
 
             JsonObject root = GSON.fromJson(json, JsonObject.class);
 
-            // 1. Parse the new Textures Map
+             // Parse the Textures Map
             Map<String, StrataModel.TextureInfo> textureMap = new HashMap<>();
             JsonObject texObj = root.getAsJsonObject("textures");
             for (Map.Entry<String, JsonElement> entry : texObj.entrySet()) {
@@ -38,16 +38,6 @@ public class StrataModelLoader {
                         info.get("uv_width").getAsInt(),
                         info.get("uv_height").getAsInt()
                 ));
-            }
-
-
-            // Parse texture slots
-            List<String> textureSlots = new ArrayList<>();
-            JsonArray texturesArray = root.getAsJsonArray("textures");
-            if (texturesArray != null) {
-                for (JsonElement elem : texturesArray) {
-                    textureSlots.add(elem.getAsString());
-                }
             }
 
             // Parse meshes
@@ -214,9 +204,9 @@ public class StrataModelLoader {
             return new Vector3f(0, 0, 0);
         }
         return new Vector3f(
-            (float) Math.toRadians(array.get(0).getAsFloat()),
-            (float) Math.toRadians(array.get(1).getAsFloat()),
-            (float) Math.toRadians(array.get(2).getAsFloat())
+                (float) Math.toRadians(array.get(0).getAsFloat()),
+                (float) Math.toRadians(array.get(1).getAsFloat()),
+                (float) Math.toRadians(array.get(2).getAsFloat())
         );
     }
 

@@ -67,9 +67,6 @@ public final class GpuModelCache {
         MeshRenderer renderer = new MeshRenderer();
         renderer.upload(data, vertexCount, format);
         cache.put(key, renderer);
-
-        LOGGER.debug("GpuModelCache: uploaded '{}' ({} verts, {} KB)",
-                key, vertexCount, renderer.getBufferSize() / 1024);
     }
 
     /**

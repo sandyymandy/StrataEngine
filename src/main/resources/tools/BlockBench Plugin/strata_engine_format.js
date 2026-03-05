@@ -1,5 +1,5 @@
 (function() {
-  const STRATA_FORMAT_VERSION = 1.1;
+  const STRATA_FORMAT_VERSION = 1.2;
 
   let codec, format;
   let modelExportAction, modelImportAction, animExportAction, animImportAction, skinExportAction;
@@ -94,9 +94,10 @@
       }
 
       const properties = {
-          type: 'blockbench_cuboid',
-          texture: textureRef,
-          origin: [cube.origin[0], cube.origin[1], cube.origin[2]]
+        name: cube.name,
+        type: 'blockbench_cuboid',
+        texture: textureRef,
+        origin: [cube.origin[0], cube.origin[1], cube.origin[2]]
       };
 
       // Add element rotation only if X, Y, or Z is not zero
@@ -173,6 +174,7 @@
         }
 
         const properties = {
+          name: mesh.name,
           type: 'blockbench_mesh',
           texture: textureRef,
           origin: [mesh.origin[0], mesh.origin[1], mesh.origin[2]]
@@ -190,12 +192,12 @@
       }
       
       // Create Blockbench element (Cube or Mesh) from stored data
-        function createBlockbenchMesh(meshData, parent, name) {
+        function createBlockbenchMesh(meshData, parent, meshKey) {
 
           // --- Handle Cuboid Import ---
           if (meshData.type === 'blockbench_cuboid') {
             const cube = new Cube({
-              name: name || 'imported_cube',
+              name: meshData.name || meshKey || 'imported_cube',
               origin: meshData.origin,
               from: meshData.from,
               to: meshData.to,
@@ -237,10 +239,9 @@
 
           // Use Blockbench's native mesh data
           const mesh = new Mesh({
-            name: name || 'imported_mesh',
+            name: meshData.name || meshKey || 'imported_mesh',
             vertices: {},
             faces: {},
-            // FIX: Pass rotation to Mesh constructor
             rotation: meshData.rotation || [0, 0, 0]
           });
 
@@ -406,8 +407,8 @@
                 // Create new texture with dimensions from the model file
                 new Texture({
                   name: texName,
-                  // Fallback to Project resolution if specific UV width isn't in JSON
-                  res: data.uv_width || 16,
+                  uv_width: data.uv_width || 16,
+                  uv_height: data.uv_height || 16,
                   keep_size: true
                 }).add();
                 console.log(`Created texture: ${texName} (${data.uv_width}x${data.uv_height})`);
@@ -746,7 +747,7 @@
       modelImportAction = new Action('import_strata_model', {
         name: 'Import Strata Model',
         icon: 'folder_open',
-        description: 'Import model from Strata Engine format',
+        description: 'Import model and skin from Strata Engine format',
         category: 'file',
         click() {
           Blockbench.import({
@@ -757,7 +758,7 @@
             files.forEach(file => {
               try {
                 const model = autoParseJSON(file.content);
-                
+
                 if (!model) {
                   Blockbench.showMessageBox({
                     title: 'Import Error',
@@ -765,11 +766,11 @@
                   });
                   return;
                 }
-                
+
                 newProject(format);
                 codec.parse(model, file.path);
                 Canvas.updateAll();
-                
+
               } catch (error) {
                 Blockbench.showMessageBox({
                   title: 'Import Error',

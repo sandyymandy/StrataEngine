@@ -1,6 +1,0 @@
-{
-  "id": "strata:zombie",
-  "textures": {
-    "main": "strata:entity/main"
-  }
-}

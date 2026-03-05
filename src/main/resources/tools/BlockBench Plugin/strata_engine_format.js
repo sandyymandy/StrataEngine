@@ -1,5 +1,5 @@
 (function() {
-  const STRATA_FORMAT_VERSION = 3;
+  const STRATA_FORMAT_VERSION = 1.1;
 
   let codec, format;
   let modelExportAction, modelImportAction, animExportAction, animImportAction, skinExportAction;
@@ -19,7 +19,7 @@
     author: 'SandyMandy',
     description: 'Format support for Strata Engine models and animations',
     icon: 'icon-format_java',
-    version: '3.2.0',
+    version: STRATA_FORMAT_VERSION,
     variant: 'both',
     onload() {
     
@@ -37,7 +37,7 @@
       
       // Helper function to get the element's texture and validate consistency
       function getElementTexture(cube) {
-        let textureRef = "main";
+        let textureRef = "untextured";
         let foundTexture = null;
         const textures = new Set();
         
@@ -118,7 +118,7 @@
       // Store mesh in Blockbench's native format
       function exportMeshData(mesh) {
         // Get texture reference from the mesh's faces - validate consistency
-        let textureRef = "main";
+        let textureRef = "untextured";
         const textures = new Set();
         
         // Check all faces for textures
@@ -129,7 +129,7 @@
               const texture = Texture.all.find(t => t.uuid === face.texture);
               if (texture) {
                 textures.add(texture.name);
-                if (textureRef === "main") {
+                if (textureRef === "untextured") {
                   textureRef = texture.name;
                 }
               }
@@ -298,7 +298,7 @@
             },
             onConfirm: function(formData) {
               const namespace = formData.namespace || 'strata';
-              const name = formData.name || 'model';
+              const name = formData.name.replace(/\.[^/.]+$/, "").replace(/\s+/g, "_") || 'model';
               resolve(`${namespace}:${name}`);
               dialog.hide();
             },
@@ -321,6 +321,7 @@
           const bones = [];
           const meshes = {};
           const usedTextures = new Set();
+          const textureData = {};
           
           function processBone(group, parentName = null) {
             const bone = {
@@ -367,19 +368,27 @@
             }
           });
           
-          // Convert set to array for texture names only
-          const textureArray = Array.from(usedTextures);
-          
-          if (textureArray.length === 0) {
-            textureArray.push("main");
-          }
+          usedTextures.forEach(texName => {
+            // Find the actual Blockbench texture object by name
+            const bbTex = Texture.all.find(t => t.name === texName);
+
+            if (bbTex) {
+              // Get the width and height directly from the Blockbench texture object
+              textureData[texName] = {
+                uv_width: bbTex.uv_width, 
+                uv_height: bbTex.uv_height
+              };
+            } else if (texName === "untextured") {
+              // Fallback for the missing texture
+              textureData[texName] = { uv_width: 16, uv_height: 16 };
+            }
+          });
+
           
           return {
             id: options.modelId || 'strata:model',
-            texture_uv_width: Project.texture_width || 64,
-            texture_uv_height: Project.texture_height || 64,
             format_version: STRATA_FORMAT_VERSION,
-            textures: textureArray,
+            textures: textureData,
             bones: bones,
             meshes: meshes
           };
@@ -388,21 +397,23 @@
         parse(model, path) {
           this.dispatchEvent('parse', {model});
           
-          // SET PROJECT RESOLUTION ON IMPORT
-          Project.texture_width = model.texture_uv_width || 64;
-          Project.texture_height = model.texture_uv_height || 64;
-          
           // AUTO-CREATE TEXTURES ON IMPORT
-          if (model.textures && Array.isArray(model.textures)) {
-            model.textures.forEach(texName => {
-              if (!Texture.all.find(t => t.name === texName)) {
-                let tex = new Texture({
-                    name: texName,
-                    keep_size: true,
-                    res: Project.texture_width
+          if (model.textures && typeof model.textures === 'object') {
+            Object.entries(model.textures).forEach(([texName, data]) => {
+              let existing = Texture.all.find(t => t.name === texName);
+              
+              if (!existing) {
+                // Create new texture with dimensions from the model file
+                new Texture({
+                  name: texName,
+                  // Fallback to Project resolution if specific UV width isn't in JSON
+                  res: data.uv_width || 16,
+                  keep_size: true
                 }).add();
-                // We don't have the source file here, so it stays as a placeholder
-                console.log(`Created placeholder texture: ${texName}`);
+                console.log(`Created texture: ${texName} (${data.uv_width}x${data.uv_height})`);
+              } else if (data.uv_width) {
+                // Update resolution of existing texture if it differs
+                existing.res = data.uv_width;
               }
             });
           }
@@ -609,6 +620,7 @@
         rotation_limit: false,
         uv_rotation: true,
         java_face_properties: false,
+        per_texture_uv_size: true,
         select_texture_for_particles: false,
         bone_rig: true,
         centered_grid: true,
@@ -644,12 +656,33 @@
       
       // Model Export Action
       modelExportAction = new Action('export_strata_model', {
-        name: 'Export Strata Model (.strmodel)',
+        name: 'Export Strata Model',
         icon: 'save',
         description: 'Export model to Strata Engine format',
         category: 'file',
         condition: () => Format === format,
         async click() {
+
+          const rootBones = Outliner.root.filter(element => element instanceof Group);
+    
+          if (rootBones.length > 1) {
+            Blockbench.showMessageBox({
+              title: 'Export Error',
+              message: `Strata models must have exactly one root bone. Your model currently has ${rootBones.length} root bones: \n\n${rootBones.map(b => '- ' + b.name).join('\n')}\n\nPlease parent all bones under a single root bone (e.g., "root" or "body").`,
+              icon: 'error'
+            });
+            return; // Stop export
+          }
+
+          if (rootBones.length === 0) {
+            Blockbench.showMessageBox({
+              title: 'Export Error',
+              message: 'No bones found! Strata models require at least one root bone.',
+              icon: 'error'
+            });
+            return; // Stop export
+          }
+
           const modelId = await promptForModelId('strata', Project.name || 'model');
           if (!modelId) return;
           
@@ -676,7 +709,7 @@
           // Blockbench texture list order: first in list = highest priority
           const allProjectTextures = Texture.all;
           
-          modelData.textures.forEach((texName) => {
+          Object.keys(modelData.textures).forEach((texName) => {
             // Find the actual Blockbench texture object
             const bbTex = allProjectTextures.find(t => t.name === texName);
         
@@ -689,9 +722,9 @@
             const cleanName = texName.replace(/\.[^/.]+$/, "").toLowerCase();
 
             skinData.textures[texName] = {
-              path: `strata:entities/${cleanName}`,
-              width: bbTex ? bbTex.width : (Project.texture_width || 16),
-              height: bbTex ? bbTex.height : (Project.texture_height || 16),
+              path: cleanName != 'untextured' ? `strata:entities/${cleanName}` : `strata:missing`,
+              width: bbTex ? bbTex.width : 16,
+              height: bbTex ? bbTex.height : 16,
               // Use Blockbench's internal 'transparent' flag
               translucent: true, 
               render_priority: priority
@@ -711,7 +744,7 @@
       
       // Model Import Action
       modelImportAction = new Action('import_strata_model', {
-        name: 'Import Strata Model (.strmodel)',
+        name: 'Import Strata Model',
         icon: 'folder_open',
         description: 'Import model from Strata Engine format',
         category: 'file',

@@ -141,7 +141,7 @@ public class StrataModelLoader {
             StrataMeshData.Cuboid cuboidData = new StrataMeshData.Cuboid(from, to, inflate, cuboidFaces);
             return new StrataMeshData(type, textureSlot, origin, rotation, null, cuboidData);
 
-        } else {
+        } else if("blockbench_mesh".equals(type)) {
             // Original "blockbench_mesh" parsing logic
             Map<String, Vector3f> vertices = new HashMap<>();
             JsonObject verticesObj = meshObj.getAsJsonObject("vertices");
@@ -171,6 +171,8 @@ public class StrataModelLoader {
             StrataMeshData.Mesh meshData = new StrataMeshData.Mesh(vertices, meshFaces);
             return new StrataMeshData(type, textureSlot, origin, rotation, meshData, null);
         }
+        LOGGER.error("Mesh Type is not blockbench_mesh or blockbench_cuboid");
+        return null;
     }
 
     // Helper for raw float arrays (UVs, Positions, Normals)

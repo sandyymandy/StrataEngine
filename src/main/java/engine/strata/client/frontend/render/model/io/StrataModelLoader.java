@@ -63,7 +63,7 @@ public class StrataModelLoader {
                 String name = boneObj.get("name").getAsString();
 
                 Vector3f pivot = parseVector3f(boneObj.getAsJsonArray("pivot"));
-                Vector3f rotation = boneObj.has("rotation") ? parseVector3fToRadians(boneObj.getAsJsonArray("rotation")) : new Vector3f();
+                Vector3f rotation = boneObj.has("rotation") ? parseVector3f(boneObj.getAsJsonArray("rotation")) : new Vector3f();
 
                 List<String> meshIds = new ArrayList<>();
                 JsonArray meshesArray = boneObj.getAsJsonArray("meshes");
@@ -121,7 +121,7 @@ public class StrataModelLoader {
         String type = meshObj.get("type").getAsString();
         String textureSlot = meshObj.get("texture").getAsString();
         Vector3f origin = parseVector3f(meshObj.getAsJsonArray("origin"));
-        Vector3f rotation = meshObj.has("rotation") ? parseVector3f(meshObj.getAsJsonArray("rotation")) : new Vector3f();
+        Vector3f rotation = meshObj.has("rotation") ? parseVector3fToRadians(meshObj.getAsJsonArray("rotation")) : new Vector3f();
 
         if ("blockbench_cuboid".equals(type)) {
             // 1. Parse Cuboid Geometry

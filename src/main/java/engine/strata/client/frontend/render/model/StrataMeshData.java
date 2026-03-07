@@ -27,7 +27,7 @@ public record StrataMeshData(
     /**
      * Represents a mesh from BlockBench.
      */
-    public record Mesh(Map<String, Vector3f> vertices, Map<String, Face> faces) {}
+    public record Mesh(boolean shadeSmooth, Map<String, Vector3f> vertices, Map<String, Face> faces) {}
 
     /**
      * Represents a face (triangle or quad) in the mesh.

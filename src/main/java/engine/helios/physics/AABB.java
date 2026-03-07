@@ -1,6 +1,7 @@
 package engine.helios.physics;
 
 import engine.strata.util.Vec3d;
+import engine.strata.util.Vec3f;
 
 /**
  * Axis-Aligned Bounding Box for collision detection.
@@ -9,11 +10,19 @@ import engine.strata.util.Vec3d;
 public class AABB {
 
     // Box dimensions (relative to center/position)
-    private double minX, minY, minZ;
-    private double maxX, maxY, maxZ;
+    private final Vec3d min;
+    private final Vec3d max;
 
     /**
-     * Creates an AABB with specified dimensions relative to origin.
+     * Creates an AABB with specified min and max corners.
+     */
+    public AABB(Vec3d min, Vec3d max) {
+        this.min = min;
+        this.max = max;
+    }
+
+    /**
+     * Creates an AABB with specified dimensions.
      * @param minX Minimum X offset
      * @param minY Minimum Y offset
      * @param minZ Minimum Z offset
@@ -21,14 +30,9 @@ public class AABB {
      * @param maxY Maximum Y offset
      * @param maxZ Maximum Z offset
      */
-    public AABB(double minX, double minY, double minZ,
-                double maxX, double maxY, double maxZ) {
-        this.minX = minX;
-        this.minY = minY;
-        this.minZ = minZ;
-        this.maxX = maxX;
-        this.maxY = maxY;
-        this.maxZ = maxZ;
+    public AABB(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
+        this.min = new Vec3d(minX, minY, minZ);
+        this.max = new Vec3d(maxX, maxY, maxZ);
     }
 
     /**
@@ -52,8 +56,8 @@ public class AABB {
      */
     public AABB offset(double x, double y, double z) {
         return new AABB(
-                minX + x, minY + y, minZ + z,
-                maxX + x, maxY + y, maxZ + z
+                min.add(x, y, z),
+                max.add(x, y, z)
         );
     }
 
@@ -61,7 +65,10 @@ public class AABB {
      * Returns a new AABB offset by a Vec3d.
      */
     public AABB offset(Vec3d pos) {
-        return offset(pos.getX(), pos.getY(), pos.getZ());
+        return new AABB(
+                min.add(pos),
+                max.add(pos)
+        );
     }
 
     /**
@@ -69,8 +76,8 @@ public class AABB {
      */
     public AABB expand(double x, double y, double z) {
         return new AABB(
-                minX - x, minY - y, minZ - z,
-                maxX + x, maxY + y, maxZ + z
+                min.subtract(x, y, z),
+                max.add(x, y, z)
         );
     }
 
@@ -85,18 +92,18 @@ public class AABB {
      * Checks if this AABB intersects with another AABB.
      */
     public boolean intersects(AABB other) {
-        return this.maxX > other.minX && this.minX < other.maxX &&
-                this.maxY > other.minY && this.minY < other.maxY &&
-                this.maxZ > other.minZ && this.minZ < other.maxZ;
+        return this.max.getX() > other.min.getX() && this.min.getX() < other.max.getX() &&
+                this.max.getY() > other.min.getY() && this.min.getY() < other.max.getY() &&
+                this.max.getZ() > other.min.getZ() && this.min.getZ() < other.max.getZ();
     }
 
     /**
      * Checks if this AABB contains a point.
      */
     public boolean contains(double x, double y, double z) {
-        return x >= minX && x <= maxX &&
-                y >= minY && y <= maxY &&
-                z >= minZ && z <= maxZ;
+        return x >= min.getX() && x <= max.getX() &&
+                y >= min.getY() && y <= max.getY() &&
+                z >= min.getZ() && z <= max.getZ();
     }
 
     /**
@@ -111,16 +118,16 @@ public class AABB {
      * Returns the adjusted movement to prevent collision.
      */
     public double calculateXOffset(AABB other, double offsetX) {
-        if (other.maxY > this.minY && other.minY < this.maxY &&
-                other.maxZ > this.minZ && other.minZ < this.maxZ) {
+        if (other.max.getY() > this.min.getY() && other.min.getY() < this.max.getY() &&
+                other.max.getZ() > this.min.getZ() && other.min.getZ() < this.max.getZ()) {
 
-            if (offsetX > 0.0 && other.maxX <= this.minX) {
-                double maxOffset = this.minX - other.maxX;
+            if (offsetX > 0.0 && other.max.getX() <= this.min.getX()) {
+                double maxOffset = this.min.getX() - other.max.getX();
                 if (maxOffset < offsetX) {
                     offsetX = maxOffset;
                 }
-            } else if (offsetX < 0.0 && other.minX >= this.maxX) {
-                double maxOffset = this.maxX - other.minX;
+            } else if (offsetX < 0.0 && other.min.getX() >= this.max.getX()) {
+                double maxOffset = this.max.getX() - other.min.getX();
                 if (maxOffset > offsetX) {
                     offsetX = maxOffset;
                 }
@@ -133,16 +140,16 @@ public class AABB {
      * Calculates the clipping factor for Y axis movement.
      */
     public double calculateYOffset(AABB other, double offsetY) {
-        if (other.maxX > this.minX && other.minX < this.maxX &&
-                other.maxZ > this.minZ && other.minZ < this.maxZ) {
+        if (other.max.getX() > this.min.getX() && other.min.getX() < this.max.getX() &&
+                other.max.getZ() > this.min.getZ() && other.min.getZ() < this.max.getZ()) {
 
-            if (offsetY > 0.0 && other.maxY <= this.minY) {
-                double maxOffset = this.minY - other.maxY;
+            if (offsetY > 0.0 && other.max.getY() <= this.min.getY()) {
+                double maxOffset = this.min.getY() - other.max.getY();
                 if (maxOffset < offsetY) {
                     offsetY = maxOffset;
                 }
-            } else if (offsetY < 0.0 && other.minY >= this.maxY) {
-                double maxOffset = this.maxY - other.minY;
+            } else if (offsetY < 0.0 && other.min.getY() >= this.max.getY()) {
+                double maxOffset = this.max.getY() - other.min.getY();
                 if (maxOffset > offsetY) {
                     offsetY = maxOffset;
                 }
@@ -155,16 +162,16 @@ public class AABB {
      * Calculates the clipping factor for Z axis movement.
      */
     public double calculateZOffset(AABB other, double offsetZ) {
-        if (other.maxX > this.minX && other.minX < this.maxX &&
-                other.maxY > this.minY && other.minY < this.maxY) {
+        if (other.max.getX() > this.min.getX() && other.min.getX() < this.max.getX() &&
+                other.max.getY() > this.min.getY() && other.min.getY() < this.max.getY()) {
 
-            if (offsetZ > 0.0 && other.maxZ <= this.minZ) {
-                double maxOffset = this.minZ - other.maxZ;
+            if (offsetZ > 0.0 && other.max.getZ() <= this.min.getZ()) {
+                double maxOffset = this.min.getZ() - other.max.getZ();
                 if (maxOffset < offsetZ) {
                     offsetZ = maxOffset;
                 }
-            } else if (offsetZ < 0.0 && other.minZ >= this.maxZ) {
-                double maxOffset = this.maxZ - other.minZ;
+            } else if (offsetZ < 0.0 && other.min.getZ() >= this.max.getZ()) {
+                double maxOffset = this.max.getZ() - other.min.getZ();
                 if (maxOffset > offsetZ) {
                     offsetZ = maxOffset;
                 }
@@ -174,51 +181,87 @@ public class AABB {
     }
 
     /**
+     * Checks if this AABB is within a certain distance from a point.
+     * Useful for distance-based culling before performing expensive frustum checks.
+     * @param pos The position to check distance from (e.g., camera position)
+     * @param maxDistance The culling distance
+     * @return true if the AABB is within range, false if it should be culled
+     */
+    public boolean isWithinDistance(Vec3f pos, double maxDistance) {
+        Vec3d center = getCenter();
+        double radius = getRadius();
+
+        double dx = center.getX() - pos.getX();
+        double dy = center.getY() - pos.getY();
+        double dz = center.getZ() - pos.getZ();
+        double distSq = dx * dx + dy * dy + dz * dz;
+
+        // Add radius to maxDistance so the box doesn't pop out
+        // until the entire volume is out of range
+        double limit = maxDistance + radius;
+        return distSq <= limit * limit;
+    }
+
+    /**
      * Gets the center point of this AABB.
      */
     public Vec3d getCenter() {
         return new Vec3d(
-                (minX + maxX) / 2.0,
-                (minY + maxY) / 2.0,
-                (minZ + maxZ) / 2.0
+                (min.getX() + max.getX()) / 2.0,
+                (min.getY() + max.getY()) / 2.0,
+                (min.getZ() + max.getZ()) / 2.0
         );
+    }
+
+    /**
+     * Gets the approximate radius of the AABB (distance from center to a corner).
+     */
+    public double getRadius() {
+        double dx = getWidth() / 2.0;
+        double dy = getHeight() / 2.0;
+        double dz = getDepth() / 2.0;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
     /**
      * Gets the width (X dimension) of this AABB.
      */
     public double getWidth() {
-        return maxX - minX;
+        return max.getX() - min.getX();
     }
 
     /**
      * Gets the height (Y dimension) of this AABB.
      */
     public double getHeight() {
-        return maxY - minY;
+        return max.getY() - min.getY();
     }
 
     /**
      * Gets the depth (Z dimension) of this AABB.
      */
     public double getDepth() {
-        return maxZ - minZ;
+        return max.getZ() - min.getZ();
     }
 
     /**
      * Creates a copy of this AABB.
      */
     public AABB copy() {
-        return new AABB(minX, minY, minZ, maxX, maxY, maxZ);
+        return new AABB(new Vec3d(min.getX(), min.getY(), min.getZ()),
+                new Vec3d(max.getX(), max.getY(), max.getZ()));
     }
 
     // Getters
-    public double getMinX() { return minX; }
-    public double getMinY() { return minY; }
-    public double getMinZ() { return minZ; }
-    public double getMaxX() { return maxX; }
-    public double getMaxY() { return maxY; }
-    public double getMaxZ() { return maxZ; }
+    public double getMinX() { return min.getX(); }
+    public double getMinY() { return min.getY(); }
+    public double getMinZ() { return min.getZ(); }
+    public double getMaxX() { return max.getX(); }
+    public double getMaxY() { return max.getY(); }
+    public double getMaxZ() { return max.getZ(); }
+
+    public Vec3d getMin() { return min; }
+    public Vec3d getMax() { return max; }
 
     /**
      * Performs swept AABB collision detection along a single axis.
@@ -242,11 +285,11 @@ public class AABB {
 
         // X axis
         if (velocityX > 0.0) {
-            entryX = staticBox.minX - this.maxX;
-            exitX = staticBox.maxX - this.minX;
+            entryX = staticBox.min.getX() - this.max.getX();
+            exitX = staticBox.max.getX() - this.min.getX();
         } else if (velocityX < 0.0) {
-            entryX = staticBox.maxX - this.minX;
-            exitX = staticBox.minX - this.maxX;
+            entryX = staticBox.max.getX() - this.min.getX();
+            exitX = staticBox.min.getX() - this.max.getX();
         } else {
             entryX = Double.NEGATIVE_INFINITY;
             exitX = Double.POSITIVE_INFINITY;
@@ -254,11 +297,11 @@ public class AABB {
 
         // Y axis
         if (velocityY > 0.0) {
-            entryY = staticBox.minY - this.maxY;
-            exitY = staticBox.maxY - this.minY;
+            entryY = staticBox.min.getY() - this.max.getY();
+            exitY = staticBox.max.getY() - this.min.getY();
         } else if (velocityY < 0.0) {
-            entryY = staticBox.maxY - this.minY;
-            exitY = staticBox.minY - this.maxY;
+            entryY = staticBox.max.getY() - this.min.getY();
+            exitY = staticBox.min.getY() - this.max.getY();
         } else {
             entryY = Double.NEGATIVE_INFINITY;
             exitY = Double.POSITIVE_INFINITY;
@@ -266,11 +309,11 @@ public class AABB {
 
         // Z axis
         if (velocityZ > 0.0) {
-            entryZ = staticBox.minZ - this.maxZ;
-            exitZ = staticBox.maxZ - this.minZ;
+            entryZ = staticBox.min.getZ() - this.max.getZ();
+            exitZ = staticBox.max.getZ() - this.min.getZ();
         } else if (velocityZ < 0.0) {
-            entryZ = staticBox.maxZ - this.minZ;
-            exitZ = staticBox.minZ - this.maxZ;
+            entryZ = staticBox.max.getZ() - this.min.getZ();
+            exitZ = staticBox.min.getZ() - this.max.getZ();
         } else {
             entryZ = Double.NEGATIVE_INFINITY;
             exitZ = Double.POSITIVE_INFINITY;
@@ -324,12 +367,12 @@ public class AABB {
      */
     public AABB getBroadphaseBox(double velocityX, double velocityY, double velocityZ) {
         return new AABB(
-                velocityX > 0 ? minX : minX + velocityX,
-                velocityY > 0 ? minY : minY + velocityY,
-                velocityZ > 0 ? minZ : minZ + velocityZ,
-                velocityX > 0 ? maxX + velocityX : maxX,
-                velocityY > 0 ? maxY + velocityY : maxY,
-                velocityZ > 0 ? maxZ + velocityZ : maxZ
+                velocityX > 0 ? min.getX() : min.getX() + velocityX,
+                velocityY > 0 ? min.getY() : min.getY() + velocityY,
+                velocityZ > 0 ? min.getZ() : min.getZ() + velocityZ,
+                velocityX > 0 ? max.getX() + velocityX : max.getX(),
+                velocityY > 0 ? max.getY() + velocityY : max.getY(),
+                velocityZ > 0 ? max.getZ() + velocityZ : max.getZ()
         );
     }
 
@@ -355,6 +398,6 @@ public class AABB {
     @Override
     public String toString() {
         return String.format("AABB[%.2f, %.2f, %.2f -> %.2f, %.2f, %.2f]",
-                minX, minY, minZ, maxX, maxY, maxZ);
+                min.getX(), min.getY(), min.getZ(), max.getX(), max.getY(), max.getZ());
     }
 }

@@ -1,10 +1,11 @@
 package engine.strata.client.frontend.render;
 
+import engine.helios.physics.AABB;
 import engine.strata.client.StrataClient;
+import engine.strata.client.frontend.window.Window;
 import engine.strata.entity.Entity;
 import engine.strata.util.Vec3d;
 import org.joml.*;
-import engine.strata.client.frontend.window.Window;
 
 import java.lang.Math;
 
@@ -199,12 +200,11 @@ public class Camera {
     /**
      * Tests if an AABB is visible with distance culling.
      */
-    public boolean isAabbVisibleWithDistance(float minX, float minY, float minZ,
-                                             float maxX, float maxY, float maxZ,
+    public boolean isAabbVisibleWithDistance(AABB aabb,
                                              float maxDistance) {
         return frustum.testAabbWithDistance(
-                minX, minY, minZ, maxX, maxY, maxZ,
-                (float) pos.getX(), (float) pos.getY(), (float) pos.getZ(),
+                aabb,
+                pos.toVec3f(),
                 maxDistance
         );
     }

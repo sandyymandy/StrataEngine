@@ -1,6 +1,7 @@
 package engine.strata.client.frontend.render.model.io;
 
 import com.google.gson.*;
+import engine.helios.physics.AABB;
 import engine.strata.client.frontend.render.model.StrataBone;
 import engine.strata.client.frontend.render.model.StrataMeshData;
 import engine.strata.client.frontend.render.model.StrataModel;
@@ -29,7 +30,7 @@ public class StrataModelLoader {
 
             JsonObject root = GSON.fromJson(json, JsonObject.class);
 
-             // Parse the Textures Map
+            // Parse the Textures Map
             Map<String, StrataModel.TextureInfo> textureMap = new HashMap<>();
             JsonObject texObj = root.getAsJsonObject("textures");
             for (Map.Entry<String, JsonElement> entry : texObj.entrySet()) {
@@ -62,7 +63,7 @@ public class StrataModelLoader {
                 String name = boneObj.get("name").getAsString();
 
                 Vector3f pivot = parseVector3f(boneObj.getAsJsonArray("pivot"));
-                Vector3f rotation = parseVector3f(boneObj.getAsJsonArray("rotation"));
+                Vector3f rotation = boneObj.has("rotation") ? parseVector3fToRadians(boneObj.getAsJsonArray("rotation")) : new Vector3f();
 
                 List<String> meshIds = new ArrayList<>();
                 JsonArray meshesArray = boneObj.getAsJsonArray("meshes");
@@ -101,7 +102,10 @@ public class StrataModelLoader {
                 return createFallbackModel(id);
             }
 
-            return new StrataModel(id, rootBone, textureMap, meshes);
+            // Parse bounding box
+            AABB boundingBox = parseBoundingBox(root);
+
+            return new StrataModel(id, boundingBox, rootBone, textureMap, meshes);
 
         } catch (Exception e) {
             LOGGER.error("Error loading model {}: {}", id, e.getMessage());
@@ -143,6 +147,9 @@ public class StrataModelLoader {
 
         } else if("blockbench_mesh".equals(type)) {
             // Original "blockbench_mesh" parsing logic
+
+            boolean shadeSmooth = meshObj.has("shade_smooth");
+
             Map<String, Vector3f> vertices = new HashMap<>();
             JsonObject verticesObj = meshObj.getAsJsonObject("vertices");
             if (verticesObj != null) {
@@ -168,7 +175,7 @@ public class StrataModelLoader {
                 }
             }
 
-            StrataMeshData.Mesh meshData = new StrataMeshData.Mesh(vertices, meshFaces);
+            StrataMeshData.Mesh meshData = new StrataMeshData.Mesh(shadeSmooth, vertices, meshFaces);
             return new StrataMeshData(type, textureSlot, origin, rotation, meshData, null);
         }
         LOGGER.error("Mesh Type is not blockbench_mesh or blockbench_cuboid");
@@ -213,6 +220,35 @@ public class StrataModelLoader {
     }
 
     /**
+     * Parses the bounding box from the JSON root object.
+     * Returns a default box if not present or invalid.
+     */
+    private static AABB parseBoundingBox(JsonObject root) {
+        if (!root.has("bounding_box")) {
+            LOGGER.warn("Model missing bounding_box, using default");
+            return new AABB(-8, 0, -8, 8, 16, 8);
+        }
+
+        try {
+            JsonObject bbox = root.getAsJsonObject("bounding_box");
+            JsonArray minArray = bbox.getAsJsonArray("min");
+            JsonArray maxArray = bbox.getAsJsonArray("max");
+
+            double minX = minArray.get(0).getAsDouble();
+            double minY = minArray.get(1).getAsDouble();
+            double minZ = minArray.get(2).getAsDouble();
+            double maxX = maxArray.get(0).getAsDouble();
+            double maxY = maxArray.get(1).getAsDouble();
+            double maxZ = maxArray.get(2).getAsDouble();
+
+            return new AABB(minX, minY, minZ, maxX, maxY, maxZ);
+        } catch (Exception e) {
+            LOGGER.error("Failed to parse bounding_box: {}", e.getMessage());
+            return new AABB(-8, 0, -8, 8, 16, 8);
+        }
+    }
+
+    /**
      * Creates a simple fallback cube model when loading fails.
      */
     private static StrataModel createFallbackModel(Identifier id) {
@@ -222,8 +258,8 @@ public class StrataModelLoader {
         textureMap.put("untextured", new StrataModel.TextureInfo(16, 16));
 
         // 1. Define the geometric boundaries (Standard 1x1x1 block size is -8 to 8 in Blockbench)
-        Vector3f from = new Vector3f(0, 0, 0);
-        Vector3f to = new Vector3f(1, 1, 1);
+        Vector3f from = new Vector3f(-8, -8, -8);
+        Vector3f to = new Vector3f(8, 8, 8);
 
         // 2. Define faces with default UVs [u1, v1, u2, v2]
         Map<String, StrataMeshData.CuboidFace> faces = new HashMap<>();
@@ -250,6 +286,9 @@ public class StrataModelLoader {
                 new Vector3f(0, 0, 0), Collections.singletonList("fallback_cuboid")
         );
 
-        return new StrataModel(id, root, textureMap, meshes);
+        // Create a default bounding box for the fallback cube
+        AABB boundingBox = new AABB(-8, -8, -8, 8, 8, 8);
+
+        return new StrataModel(id, boundingBox, root, textureMap, meshes);
     }
 }

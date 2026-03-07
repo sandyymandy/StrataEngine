@@ -1,5 +1,6 @@
 package engine.strata.client.frontend.render.model;
 
+import engine.helios.physics.AABB;
 import engine.strata.util.Identifier;
 
 import java.util.*;
@@ -10,12 +11,13 @@ import java.util.*;
  */
 public class StrataModel {
     private final Identifier id;
+    private final AABB boundingBox;
     private final StrataBone root;
     private final Map<String, TextureInfo> textures; // Keyed by texture name
     private final Map<String, StrataMeshData> meshes;
-
-    public StrataModel(Identifier id, StrataBone root, Map<String, TextureInfo> textures, Map<String, StrataMeshData> meshes) {
+    public StrataModel(Identifier id, AABB boundingBox, StrataBone root, Map<String, TextureInfo> textures, Map<String, StrataMeshData> meshes) {
         this.id = id;
+        this.boundingBox = boundingBox;
         this.root = root;
         this.textures = textures;
         this.meshes = meshes;
@@ -59,6 +61,10 @@ public class StrataModel {
         for (StrataBone child : bone.getChildren()) {
             collectBones(child, map);
         }
+    }
+
+    public AABB getBoundingBox() {
+        return boundingBox;
     }
 
     public static class TextureInfo {

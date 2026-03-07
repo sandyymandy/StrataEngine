@@ -1,5 +1,7 @@
 package engine.strata.client.frontend.render;
 
+import engine.helios.physics.AABB;
+import engine.strata.util.Vec3f;
 import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -128,33 +130,19 @@ public class Frustum {
     /**
      * Tests if an AABB is visible with distance culling.
      */
-    public boolean testAabbWithDistance(float minX, float minY, float minZ,
-                                        float maxX, float maxY, float maxZ,
-                                        float camX, float camY, float camZ,
+    public boolean testAabbWithDistance(AABB aabb,
+                                        Vec3f camPos,
                                         float maxDistance) {
-        // Calculate center of AABB
-        float centerX = (minX + maxX) / 2.0f;
-        float centerY = (minY + maxY) / 2.0f;
-        float centerZ = (minZ + maxZ) / 2.0f;
 
-        // Calculate approximate radius (distance from center to corner)
-        float dx = maxX - centerX;
-        float dy = maxY - centerY;
-        float dz = maxZ - centerZ;
-        float radius = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-        // Distance check
-        dx = centerX - camX;
-        dy = centerY - camY;
-        dz = centerZ - camZ;
-        float distSq = dx * dx + dy * dy + dz * dz;
-        float maxDistSq = (maxDistance + radius) * (maxDistance + radius);
-
-        if (distSq > maxDistSq) {
-            return false; // Too far
+        if (!aabb.isWithinDistance(camPos, maxDistance)) {
+            return false; // Too far away
         }
 
         // Frustum check
-        return testAabb(minX, minY, minZ, maxX, maxY, maxZ);
+        return testAabb(
+                (float) aabb.getMinX(), (float) aabb.getMinY(), (float) aabb.getMinZ(),
+                (float) aabb.getMaxX(), (float) aabb.getMaxY(), (float) aabb.getMaxZ()
+        );
     }
 }

@@ -1,11 +1,10 @@
-package engine.strata.client.frontend.render.renderer.entity.util;
+package engine.strata.client.frontend.render.renderer.entity;
 
 import engine.helios.rendering.vertex.MatrixStack;
 import engine.strata.client.StrataClient;
 import engine.strata.client.frontend.render.model.StrataModel;
 import engine.strata.client.frontend.render.model.StrataSkin;
 import engine.strata.client.frontend.render.model.io.ModelManager;
-import engine.strata.client.frontend.render.renderer.entity.EntityRenderContext;
 import engine.strata.entity.Entity;
 import engine.strata.util.Identifier;
 import engine.strata.util.Transform;
@@ -71,6 +70,7 @@ public class EntityRenderer {
         // Load or retrieve cached model
         ModelCache cache = getOrLoadModel(modelId);
         if (cache == null || cache.model == null || cache.skin == null) {
+            LOGGER.error("Failed to retrieve cached model or it doesn't exist for {}", modelId);
             return; // Failed to load
         }
 

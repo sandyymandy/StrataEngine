@@ -1,8 +1,13 @@
 (function() {
-  const STRATA_FORMAT_VERSION = 1.2;
+  const STRATA_FORMAT_VERSION = 1.1;
 
   let codec, format;
   let modelExportAction, modelImportAction, animExportAction, animImportAction, skinExportAction;
+
+  const _Cube = typeof ElementCube !== 'undefined' ? ElementCube : Cube;
+  const _Mesh = typeof ElementMesh !== 'undefined' ? ElementMesh : Mesh;
+  const _MeshFace = typeof ElementMeshFace !== 'undefined' ? ElementMeshFace : MeshFace;
+  const _isBB5 = Blockbench.isNewerThan('4.99');
 
   function collapseVectors(json) {
       return json
@@ -22,7 +27,192 @@
     version: STRATA_FORMAT_VERSION,
     variant: 'both',
     onload() {
-    
+
+
+      // Rotate a point around origin using Euler angles (in degrees, ZYX order)
+      function rotatePoint(point, rotation) {
+        const [x, y, z] = point;
+        const [rx, ry, rz] = rotation.map(deg => deg * Math.PI / 180);
+        
+        // Rotation matrices - Blockbench uses ZYX order
+        const cosX = Math.cos(rx), sinX = Math.sin(rx);
+        const cosY = Math.cos(ry), sinY = Math.sin(ry);
+        const cosZ = Math.cos(rz), sinZ = Math.sin(rz);
+        
+        // Apply Z rotation
+        let nx = x * cosZ - y * sinZ;
+        let ny = x * sinZ + y * cosZ;
+        let nz = z;
+        
+        // Apply Y rotation
+        let tx = nx * cosY + nz * sinY;
+        let ty = ny;
+        let tz = -nx * sinY + nz * cosY;
+        
+        // Apply X rotation
+        nx = tx;
+        ny = ty * cosX - tz * sinX;
+        nz = ty * sinX + tz * cosX;
+        
+        return [nx, ny, nz];
+      }
+      
+      // Calculate bounding box for the entire model
+      function calculateModelBoundingBox() {
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+        
+        // Build parent transform chain for each group
+        function getParentChain(group) {
+          const chain = [];
+          let current = group;
+          while (current instanceof Group) {
+            chain.unshift({
+              origin: current.origin || [0, 0, 0],
+              rotation: current.rotation || [0, 0, 0]
+            });
+            current = current.parent;
+          }
+          return chain;
+        }
+        
+        // Transform a point through a chain of bone transforms
+        function transformThroughChain(point, chain) {
+          let result = [...point];
+          
+          for (const transform of chain) {
+            // Only apply rotation if it's non-zero
+            if (transform.rotation[0] !== 0 || transform.rotation[1] !== 0 || transform.rotation[2] !== 0) {
+              // Translate to bone pivot
+              result[0] -= transform.origin[0];
+              result[1] -= transform.origin[1];
+              result[2] -= transform.origin[2];
+              
+              // Rotate around pivot
+              result = rotatePoint(result, transform.rotation);
+              
+              // Translate back from pivot
+              result[0] += transform.origin[0];
+              result[1] += transform.origin[1];
+              result[2] += transform.origin[2];
+            }
+          }
+          
+          return result;
+        }
+        
+        // Process all cubes
+        for (const cube of Cube.all) {
+          if (!cube.visibility) continue;
+          
+          const [x1, y1, z1] = cube.from;
+          const [x2, y2, z2] = cube.to;
+          const inflate = cube.inflate || 0;
+          const cubeOrigin = cube.origin || [0, 0, 0];
+          const cubeRotation = cube.rotation || [0, 0, 0];
+          
+          // Get all 8 corners of the cube RELATIVE TO CUBE ORIGIN
+          // This is the key fix: corners must be relative to origin before rotation
+          const corners = [
+            [x1 - inflate - cubeOrigin[0], y1 - inflate - cubeOrigin[1], z1 - inflate - cubeOrigin[2]],
+            [x2 + inflate - cubeOrigin[0], y1 - inflate - cubeOrigin[1], z1 - inflate - cubeOrigin[2]],
+            [x1 - inflate - cubeOrigin[0], y2 + inflate - cubeOrigin[1], z1 - inflate - cubeOrigin[2]],
+            [x2 + inflate - cubeOrigin[0], y2 + inflate - cubeOrigin[1], z1 - inflate - cubeOrigin[2]],
+            [x1 - inflate - cubeOrigin[0], y1 - inflate - cubeOrigin[1], z2 + inflate - cubeOrigin[2]],
+            [x2 + inflate - cubeOrigin[0], y1 - inflate - cubeOrigin[1], z2 + inflate - cubeOrigin[2]],
+            [x1 - inflate - cubeOrigin[0], y2 + inflate - cubeOrigin[1], z2 + inflate - cubeOrigin[2]],
+            [x2 + inflate - cubeOrigin[0], y2 + inflate - cubeOrigin[1], z2 + inflate - cubeOrigin[2]]
+          ];
+          
+          // Get full parent chain (NOT including cube's own rotation)
+          const parentChain = cube.parent instanceof Group ? getParentChain(cube.parent) : [];
+          
+          // Transform each corner
+          for (let corner of corners) {
+            // First, apply cube's own rotation around its origin (if any)
+            if (cubeRotation[0] !== 0 || cubeRotation[1] !== 0 || cubeRotation[2] !== 0) {
+              corner = rotatePoint(corner, cubeRotation);
+            }
+            
+            // Add cube origin back to get world position
+            let worldPos = [
+              corner[0] + cubeOrigin[0],
+              corner[1] + cubeOrigin[1],
+              corner[2] + cubeOrigin[2]
+            ];
+            
+            // Then apply parent transforms
+            const transformed = transformThroughChain(worldPos, parentChain);
+            
+            minX = Math.min(minX, transformed[0]);
+            minY = Math.min(minY, transformed[1]);
+            minZ = Math.min(minZ, transformed[2]);
+            maxX = Math.max(maxX, transformed[0]);
+            maxY = Math.max(maxY, transformed[1]);
+            maxZ = Math.max(maxZ, transformed[2]);
+          }
+        }
+        
+        // Process all meshes
+        for (const mesh of Mesh.all) {
+          if (!mesh.visibility) continue;
+          
+          // Get parent chain
+          const parentChain = mesh.parent instanceof Group ? getParentChain(mesh.parent) : [];
+          
+          // Mesh transform
+          const meshOrigin = mesh.origin || [0, 0, 0];
+          const meshRotation = mesh.rotation || [0, 0, 0];
+          
+          // Process each vertex
+          for (const key in mesh.vertices) {
+            const vertex = mesh.vertices[key];
+            
+            // Mesh vertices are relative to mesh origin
+            let worldVertex = [
+              vertex[0] + meshOrigin[0],
+              vertex[1] + meshOrigin[1],
+              vertex[2] + meshOrigin[2]
+            ];
+            
+            // Apply mesh rotation around its origin
+            if (meshRotation[0] !== 0 || meshRotation[1] !== 0 || meshRotation[2] !== 0) {
+              worldVertex[0] -= meshOrigin[0];
+              worldVertex[1] -= meshOrigin[1];
+              worldVertex[2] -= meshOrigin[2];
+              
+              worldVertex = rotatePoint(worldVertex, meshRotation);
+              
+              worldVertex[0] += meshOrigin[0];
+              worldVertex[1] += meshOrigin[1];
+              worldVertex[2] += meshOrigin[2];
+            }
+            
+            // Apply parent transforms
+            const transformed = transformThroughChain(worldVertex, parentChain);
+            
+            minX = Math.min(minX, transformed[0]);
+            minY = Math.min(minY, transformed[1]);
+            minZ = Math.min(minZ, transformed[2]);
+            maxX = Math.max(maxX, transformed[0]);
+            maxY = Math.max(maxY, transformed[1]);
+            maxZ = Math.max(maxZ, transformed[2]);
+          }
+        }
+        
+        // Return default if no elements processed
+        if (minX === Infinity) {
+          return {
+            min: [0, 0, 0],
+            max: [0, 0, 0]
+          };
+        }
+        
+        return {
+          min: [minX, minY, minZ],
+          max: [maxX, maxY, maxZ]
+        };
+      }
 
       // Helper function to get texture name from a cube face
       function getTextureNameFromFace(face) {
@@ -105,6 +295,10 @@
         properties.rotation = [cube.rotation[0], cube.rotation[1], cube.rotation[2]];
       }
 
+      if(!cube.visibility) {
+        properties.hidden = true;
+      }
+
       properties.from = [cube.from[0], cube.from[1], cube.from[2]]
       properties.to = [cube.to[0], cube.to[1], cube.to[2]]
 
@@ -185,6 +379,14 @@
           properties.rotation = [mesh.rotation[0], mesh.rotation[1], mesh.rotation[2]];
         }
 
+        if (mesh.shading == "smooth") {
+          properties.shade_smooth = true;
+        }
+
+        if(!mesh.visibility) {
+          properties.hidden = true;
+        }
+
         properties.vertices = verticesCopy
         properties.faces = facesCopy
 
@@ -196,7 +398,7 @@
 
           // --- Handle Cuboid Import ---
           if (meshData.type === 'blockbench_cuboid') {
-            const cube = new Cube({
+            const cube = new _Cube({
               name: meshData.name || meshKey || 'imported_cube',
               origin: meshData.origin,
               from: meshData.from,
@@ -205,6 +407,10 @@
               inflate: meshData.inflate || 0,
               autouv: 0 // Disable Auto-UV to keep our imported mapping
             });
+
+            if(meshData.hidden) {
+              cube.visibility = false
+            }
 
             // Resolve texture by name
             let textureUuid = null;
@@ -238,12 +444,21 @@
           // --- Handle Mesh Import ---
 
           // Use Blockbench's native mesh data
-          const mesh = new Mesh({
+          const mesh = new _Mesh({
             name: meshData.name || meshKey || 'imported_mesh',
             vertices: {},
             faces: {},
             rotation: meshData.rotation || [0, 0, 0]
           });
+
+          // Apply Shade Smooth if supported and data exists
+          if (_isBB5 && meshData.shade_smooth) {
+            mesh.shading = "smooth";
+          }
+
+          if(meshData.hidden) {
+            mesh.visibility = false
+          }
 
           // Set origin if available
           if (meshData.origin) {
@@ -261,7 +476,7 @@
           if (meshData.faces) {
             for (let faceKey in meshData.faces) {
               const faceData = meshData.faces[faceKey];
-              const face = new MeshFace(mesh, faceData);
+              const face = new _MeshFace(mesh, faceData);
 
               // Resolve texture for mesh face
               if (meshData.texture) {
@@ -323,49 +538,53 @@
           const meshes = {};
           const usedTextures = new Set();
           const textureData = {};
-          
+        
+
           function processBone(group, parentName = null) {
             const bone = {
               name: group.name,
               parent: parentName,
-              pivot: [group.origin[0], group.origin[1], group.origin[2]],
-              rotation: [group.rotation[0], group.rotation[1], group.rotation[2]],
-              meshes: []
+              pivot: [group.origin[0], group.origin[1], group.origin[2]]
             };
-            
-            group.children.forEach(child => {
-              if (child instanceof Cube) {
-                const meshName = `${group.name}_mesh_${Object.keys(meshes).length}`;
-                bone.meshes.push(meshName);
-                const meshData = exportCubeData(child);
-                meshes[meshName] = meshData;
-                
-                // Track the actual texture used by this specific mesh
-                usedTextures.add(meshData.texture);
-              } else if (child instanceof Mesh) {
-                const meshName = `${group.name}_mesh_${Object.keys(meshes).length}`;
-                bone.meshes.push(meshName);
-                
-                const meshData = exportMeshData(child);
-                meshes[meshName] = meshData;
-                
-                // Track the actual texture used by this specific mesh
-                usedTextures.add(meshData.texture);
+
+              // Add element rotation only if X, Y, or Z is not zero
+              if (group.rotation && (group.rotation[0] !== 0 || group.rotation[1] !== 0 || group.rotation[2] !== 0)) {
+                bone.rotation = [group.rotation[0], group.rotation[1], group.rotation[2]];
               }
-            });
+
+
+              if(!group.visibility) {
+                bone.hidden = true;
+              }
+              
+              bone.meshes = [];
             
-            bones.push(bone);
             
             group.children.forEach(child => {
               if (child instanceof Group) {
                 processBone(child, group.name);
+              } else if (child instanceof _Cube || child instanceof _Mesh) {
+                const meshKey = `${group.name}_mesh_${Object.keys(meshes).length}`;
+                bone.meshes.push(meshKey);
+                
+                if (child instanceof _Cube) {
+                  meshes[meshKey] = exportCubeData(child);
+                } else {
+                  meshes[meshKey] = exportMeshData(child);
+                }
+                
+                if (meshes[meshKey].texture !== "untextured") {
+                  usedTextures.add(meshes[meshKey].texture);
+                }
               }
             });
+            
+            bones.push(bone);
           }
           
-          Outliner.root.forEach(element => {
-            if (element instanceof Group) {
-              processBone(element, null);
+          Group.all.forEach(group => {
+            if (!group.parent || group.parent === 'root') {
+              processBone(group);
             }
           });
           
@@ -389,6 +608,7 @@
           return {
             id: options.modelId || 'strata:model',
             format_version: STRATA_FORMAT_VERSION,
+            bounding_box: calculateModelBoundingBox(),
             textures: textureData,
             bones: bones,
             meshes: meshes
@@ -425,10 +645,17 @@
             model.bones.forEach(bone => {
               const group = new Group({
                 name: bone.name,
-                origin: bone.pivot,
-                rotation: bone.rotation
+                origin: bone.pivot
               }).init();
-              
+
+              if(bone.rotation) {
+                group.rotation = bone.rotation;
+              }
+
+              if(bone.hidden) {
+                group.visibility = false;
+              }
+
               boneGroups[bone.name] = group;
               
               if (bone.meshes && model.meshes) {
@@ -620,7 +847,7 @@
         locators: false,
         rotation_limit: false,
         uv_rotation: true,
-        java_face_properties: false,
+        [_isBB5 ? 'element_face_properties' : 'java_face_properties']: false,
         per_texture_uv_size: true,
         select_texture_for_particles: false,
         bone_rig: true,
@@ -747,7 +974,7 @@
       modelImportAction = new Action('import_strata_model', {
         name: 'Import Strata Model',
         icon: 'folder_open',
-        description: 'Import model and skin from Strata Engine format',
+        description: 'Import model from Strata Engine format',
         category: 'file',
         click() {
           Blockbench.import({

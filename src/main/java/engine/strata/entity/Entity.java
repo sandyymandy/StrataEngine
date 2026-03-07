@@ -1,19 +1,23 @@
 package engine.strata.entity;
 
+import engine.helios.physics.AABB;
 import engine.helios.physics.RigidBody;
+import engine.strata.client.frontend.render.model.StrataModel;
+import engine.strata.client.frontend.render.model.io.ModelManager;
 import engine.strata.client.frontend.render.renderer.entity.EntityRenderContext;
 import engine.strata.entity.util.EntityKey;
 import engine.strata.util.Identifier;
 import engine.strata.util.Transform;
+import engine.strata.util.Vec3d;
 import engine.strata.util.math.Math;
 import engine.strata.util.math.Random;
-import engine.strata.util.Vec3d;
-import engine.strata.util.Vec3f;
 import engine.strata.world.World;
 import org.joml.Quaternionf;
 
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static engine.strata.util.math.Math.lerp;
 
 /**
  * Enhanced Entity class with integrated rendering data.
@@ -332,6 +336,90 @@ public abstract class Entity extends RigidBody {
      */
     public Transform getModelTransform() {
         return modelTransform;
+    }
+
+
+    /**
+     * Computes the world-space bounding box for this entity.
+     * This accounts for:
+     * - Entity position (interpolated with partialTicks)
+     * - Entity scale
+     * - Model transform offset
+     * - Model space to world space conversion (divide by 16)
+     *
+     * This is the CORRECT bounding box to use for frustum culling.
+     *
+     * @param partialTicks Interpolation factor between ticks (0.0 to 1.0)
+     * @return World-space AABB for frustum culling and collision
+     */
+    public AABB getModelBoundingBox(float partialTicks) {
+        // 1. Get model bounding box (in model space: 0-16 units)
+        Identifier modelId = getModelId();
+        if (modelId == null) {
+            // Fallback: 1x1x1 cube
+            return new AABB(-0.5, 0, -0.5, 0.5, 1, 0.5)
+                    .offset(getPosition());
+        }
+
+        StrataModel model = ModelManager.getModel(modelId);
+        if (model == null) {
+            // Fallback: 1x1x1 cube
+            return new AABB(-0.5, 0, -0.5, 0.5, 1, 0.5)
+                    .offset(getPosition());
+        }
+
+        AABB modelAABB = model.getBoundingBox();
+
+        // 2. Interpolate entity position for smooth culling during movement
+        Vec3d interpolatedPos = new Vec3d(
+                lerp(prevX, getPosition().getX(), partialTicks),
+                lerp(prevY, getPosition().getY(), partialTicks),
+                lerp(prevZ, getPosition().getZ(), partialTicks)
+        );
+
+        // 3. Convert from model space (16 units = 1 block) to world space
+        //    Model coordinates are 0-16, world coordinates are 0-1
+        AABB worldAABB = new AABB(
+                modelAABB.getMinX() / 16.0,
+                modelAABB.getMinY() / 16.0,
+                modelAABB.getMinZ() / 16.0,
+                modelAABB.getMaxX() / 16.0,
+                modelAABB.getMaxY() / 16.0,
+                modelAABB.getMaxZ() / 16.0
+        );
+
+        // 4. Apply entity scale
+        //    Scale affects size, not just visual appearance
+        double scaleX = getScale().getX();
+        double scaleY = getScale().getY();
+        double scaleZ = getScale().getZ();
+
+        if (scaleX != 1.0 || scaleY != 1.0 || scaleZ != 1.0) {
+            // Scale around center
+            Vec3d center = worldAABB.getCenter();
+            double halfWidth = worldAABB.getWidth() * scaleX / 2.0;
+            double halfHeight = worldAABB.getHeight() * scaleY / 2.0;
+            double halfDepth = worldAABB.getDepth() * scaleZ / 2.0;
+
+            worldAABB = new AABB(
+                    center.getX() - halfWidth,
+                    center.getY() - halfHeight,
+                    center.getZ() - halfDepth,
+                    center.getX() + halfWidth,
+                    center.getY() + halfHeight,
+                    center.getZ() + halfDepth
+            );
+        }
+
+        // 5. Add model transform position offset
+        //    This is the offset defined in the model relative to entity position
+        Vec3d modelOffset = getModelTransform().getPosition();
+        worldAABB = worldAABB.offset(modelOffset);
+
+        // 6. Move to world position
+        worldAABB = worldAABB.offset(interpolatedPos);
+
+        return worldAABB;
     }
 
     /**

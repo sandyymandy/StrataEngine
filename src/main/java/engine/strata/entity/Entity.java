@@ -6,6 +6,7 @@ import engine.strata.client.frontend.render.model.StrataModel;
 import engine.strata.client.frontend.render.model.io.ModelManager;
 import engine.strata.client.frontend.render.renderer.entity.EntityRenderContext;
 import engine.strata.entity.util.EntityKey;
+import engine.strata.util.Gender;
 import engine.strata.util.Identifier;
 import engine.strata.util.Transform;
 import engine.strata.util.Vec3d;
@@ -87,6 +88,9 @@ public abstract class Entity extends RigidBody {
     protected final Random random = new Random(System.currentTimeMillis());
     protected UUID uuid = Math.randomUuid(this.random);
     private final int id = CURRENT_ID.incrementAndGet();
+    private final Gender gender = Gender.UNKNOWN;
+    private boolean supportsGenders;
+    private boolean supportsNSFW;
     private final Identifier entityId;
 
     // Rendering cache - created lazily

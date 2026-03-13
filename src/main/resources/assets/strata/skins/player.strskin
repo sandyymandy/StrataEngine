@@ -1,13 +1,104 @@
 {
   "id": "strata:player",
-  "format_version": 3,
+  "format_version": 1.1,
   "textures": {
-    "steve.png": {
-      "path": "strata:entities/steve",
-      "width": 64,
-      "height": 64,
+    "untextured": {
+      "path": "strata:missing",
+      "width": 16,
+      "height": 16,
       "translucent": true,
-      "render_priority": 1
+      "render_priority": 0
+    },
+    "Skin_Col.png": {
+      "path": "strata:entities/model/skin_col",
+      "width": 128,
+      "height": 128,
+      "translucent": true,
+      "render_priority": 12
+    },
+    "eye_whites_texture.png": {
+      "path": "strata:entities/model/eye_whites_texture",
+      "width": 11,
+      "height": 11,
+      "translucent": true,
+      "render_priority": 8
+    },
+    "Eyebrows_Col.png": {
+      "path": "strata:entities/model/eyebrows_col",
+      "width": 128,
+      "height": 128,
+      "translucent": true,
+      "render_priority": 10
+    },
+    "Eyelids_Col.png": {
+      "path": "strata:entities/model/eyelids_col",
+      "width": 128,
+      "height": 128,
+      "translucent": true,
+      "render_priority": 9
+    },
+    "pupils_lucy.png": {
+      "path": "strata:entities/model/pupils_lucy",
+      "width": 64,
+      "height": 105,
+      "translucent": true,
+      "render_priority": 2
+    },
+    "FX_eyebag.png": {
+      "path": "strata:entities/model/fx_eyebag",
+      "width": 16,
+      "height": 16,
+      "translucent": true,
+      "render_priority": 6
+    },
+    "Face_Gloom_Effect.png": {
+      "path": "strata:entities/model/face_gloom_effect",
+      "width": 16,
+      "height": 16,
+      "translucent": true,
+      "render_priority": 7
+    },
+    "FX_Blush-Marks.png": {
+      "path": "strata:entities/model/fx_blush-marks",
+      "width": 17,
+      "height": 16,
+      "translucent": true,
+      "render_priority": 5
+    },
+    "FX_Blush-Face.png": {
+      "path": "strata:entities/model/fx_blush-face",
+      "width": 34,
+      "height": 16,
+      "translucent": true,
+      "render_priority": 4
+    },
+    "body_mouth_tex.png": {
+      "path": "strata:entities/model/body_mouth_tex",
+      "width": 500,
+      "height": 300,
+      "translucent": true,
+      "render_priority": 15
+    },
+    "Nipple_Col.png": {
+      "path": "strata:entities/model/nipple_col",
+      "width": 128,
+      "height": 128,
+      "translucent": true,
+      "render_priority": 11
+    },
+    "belly_tex.png": {
+      "path": "strata:entities/model/belly_tex",
+      "width": 50,
+      "height": 50,
+      "translucent": true,
+      "render_priority": 14
+    },
+    "highlight_tex.png": {
+      "path": "strata:entities/model/highlight_tex",
+      "width": 40,
+      "height": 50,
+      "translucent": true,
+      "render_priority": 13
     }
   }
 }

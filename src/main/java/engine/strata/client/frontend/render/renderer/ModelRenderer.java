@@ -7,15 +7,12 @@ import engine.helios.rendering.shader.ShaderStack;
 import engine.helios.rendering.vertex.MatrixStack;
 import engine.strata.client.StrataClient;
 import engine.strata.client.frontend.render.RenderLayers;
-import engine.strata.client.frontend.render.model.GpuModelBaker;
-import engine.strata.client.frontend.render.model.StrataBone;
-import engine.strata.client.frontend.render.model.StrataMeshData;
-import engine.strata.client.frontend.render.model.StrataModel;
-import engine.strata.client.frontend.render.model.StrataSkin;
+import engine.strata.client.frontend.render.animation.AnimationProcessor;
+import engine.strata.client.frontend.render.model.*;
 import engine.strata.client.frontend.render.renderer.entity.EntityRenderContext;
 import engine.strata.util.Identifier;
 import org.joml.Matrix4f;
-import org.joml.Vector2f;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
 import org.slf4j.Logger;
@@ -24,53 +21,53 @@ import org.slf4j.LoggerFactory;
 import java.util.Map;
 
 /**
- * GPU-driven model renderer with EntityRenderContext support.
+ * GPU-driven model renderer with QUATERNION-BASED bone transforms.
  *
- * <h3>How transforms work</h3>
- * The bone hierarchy is walked exactly as before, accumulating transforms in a
- * {@link MatrixStack}.  For each mesh the final matrix is uploaded as the
- * {@code u_Model} shader uniform, then the pre-uploaded VAO is drawn with a
- * single {@code glDrawArrays} call — no per-frame vertex data is touched on the CPU.
+ * <h3>MAJOR REFACTOR - Quaternion Rotations:</h3>
+ * <p>All bone rotations now use {@link Quaternionf} instead of Euler angles.
+ * This eliminates gimbal lock and enables smooth interpolation (slerp).
  *
- * <h3>EntityRenderContext integration</h3>
- * When rendering with a context:
+ * <h3>How transforms work:</h3>
+ * <p>The bone hierarchy is walked with each bone applying its transform in this order:
+ * <ol>
+ *   <li>Translate to pivot point</li>
+ *   <li>Apply base rotation (from StrataBone) + animation offset (from BoneState)</li>
+ *   <li>Apply scale (from BoneState)</li>
+ *   <li>Apply position (from BoneState)</li>
+ *   <li>Translate back from pivot point</li>
+ * </ol>
+ *
+ * <h3>EntityRenderContext integration:</h3>
+ * <p>When rendering with a context:
  * <ul>
+ *   <li>AnimationProcessor → provides per-bone transforms via BoneState</li>
  *   <li>Global tint → applied to u_Tint uniform</li>
- *   <li>Global emissive → (future: needs shader support)</li>
  *   <li>Per-bone tint → overrides global tint for specific bones</li>
  *   <li>Per-bone visibility → skips rendering invisible bones</li>
  *   <li>Texture overrides → swaps texture paths before layer setup</li>
  * </ul>
  *
- * <h3>Shader contract</h3>
- * The active shader must expose:
+ * <h3>Shader contract:</h3>
+ * <p>The active shader must expose:
  * <ul>
  *   <li>{@code uniform mat4 u_Projection} – set by {@link RenderLayer#setup}</li>
  *   <li>{@code uniform mat4 u_View}       – set by {@link RenderLayer#setup}</li>
  *   <li>{@code uniform mat4 u_Model}      – set per mesh draw call here</li>
  *   <li>{@code uniform vec4 u_Tint}       – set per mesh for colorization</li>
  * </ul>
- *
- * <h3>Rotation unit contract</h3>
- * <ul>
- *   <li>{@code StrataBone.rotation} — <b>degrees</b> — goes through
- *       {@link MatrixStack#rotateZYX} which calls {@code Math.toRadians} internally.</li>
- *   <li>{@code StrataMeshData.rotation()} — <b>radians</b> — passed directly to
- *       JOML {@link Matrix4f#rotateZYX} which expects radians.
- *       Do NOT wrap these in {@code Math.toRadians}.</li>
- * </ul>
  */
 public class ModelRenderer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("ModelRenderer");
-
     private static final Matrix4f IDENTITY = new Matrix4f().identity();
 
-    // ── Public entry points ───────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    // PUBLIC ENTRY POINTS
+    // ══════════════════════════════════════════════════════════════════════════
 
     /**
      * Renders model without customization (legacy compatibility).
-     * Uses default white tint, all bones visible.
+     * Uses default white tint, all bones visible, no animations.
      */
     public void render(StrataModel model, StrataSkin skin, MatrixStack poseStack) {
         render(model, skin, poseStack, new EntityRenderContext());
@@ -83,7 +80,7 @@ public class ModelRenderer {
      * @param model The model to render
      * @param skin The skin (textures) to apply
      * @param poseStack Transform stack with entity position/rotation
-     * @param context Render customization (tints, visibility, etc.)
+     * @param context Render customization (tints, visibility, animations, etc.)
      */
     public void render(StrataModel model, StrataSkin skin, MatrixStack poseStack, EntityRenderContext context) {
         // Ensure all meshes are on the GPU — no-op after the first frame.
@@ -126,11 +123,25 @@ public class ModelRenderer {
         render(model, skin, poseStack);
     }
 
-    // ── Bone traversal ────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    // BONE TRAVERSAL WITH QUATERNION TRANSFORMS
+    // ══════════════════════════════════════════════════════════════════════════
 
     /**
-     * Recursively walks the bone tree with EntityRenderContext support.
-     * Applies per-bone visibility and customization.
+     * Recursively walks the bone tree with QUATERNION-based transforms.
+     *
+     * <h3>CRITICAL TRANSFORM ORDER:</h3>
+     * <pre>
+     * 1. Move to pivot point
+     * 2. Apply combined rotation (base * animation offset)
+     * 3. Apply scale
+     * 4. Apply position offset
+     * 5. Move back from pivot point
+     * </pre>
+     *
+     * <h3>Quaternion Multiplication:</h3>
+     * <p>{@code baseRotation.mul(animationOffset)} ensures the animation offset
+     * is applied in the bone's local space (not world space).
      */
     private void renderBone(StrataModel model,
                             String textureSlotFilter,
@@ -140,26 +151,50 @@ public class ModelRenderer {
                             Matrix4f parentModelMatrix,
                             EntityRenderContext context) {
 
-        if (!bone.shouldRender()) return;
+        // Get animation processor from context (may be null)
+        AnimationProcessor animProcessor = context.getAnimationProcessor();
 
-        // Check context visibility override
-        if (!context.isBoneVisible(bone.getName())) {
-            return;
+        // Get bone state (handles animation offsets)
+        BoneState boneState = (animProcessor != null)
+                ? animProcessor.getBoneState(bone.getName())
+                : new BoneState();
+
+        // Check visibility (both BoneState and EntityRenderContext)
+        if (!boneState.isVisible() || !context.isBoneVisible(bone.getName())) {
+            return; // Skip this entire bone subtree
         }
 
         poseStack.push();
 
-        Vector3f pivot     = bone.getPivot();
-        Vector3f staticRot = bone.getRotation(); // DEGREES — MatrixStack.rotateZYX converts internally
 
-        // Identical transform sequence to the original renderBone:
+        //Move to pivot point
+        Vector3f pivot = bone.getPivot();
         poseStack.translate(pivot.x, pivot.y, pivot.z);
-        poseStack.rotateZYX(staticRot.z, staticRot.y, staticRot.x); // ZYX, degrees
-        poseStack.translate(-pivot.x, -pivot.y, -pivot.z);
 
-        if (bone.isTrackingMatrices()) {
-            updateBoneMatrices(bone, poseStack.peek(), parentModelMatrix);
+        // Apply combined rotation (base + animation offset)
+        Vector3f baseRotation = bone.getRotation(); // From model file
+        Vector3f animOffset = boneState.getRotationOffset(); // From animation
+
+        // Combine rotations: base * offset
+        // This ensures the animation offset is in bone-local space
+        Vector3f combinedRotation = baseRotation.add(animOffset);
+
+        poseStack.rotateZYX(combinedRotation.z, combinedRotation.y, combinedRotation.x);
+
+        // Apply scale
+        Vector3f scale = boneState.getScaleOffset();
+        if (!scale.equals(1, 1, 1)) {
+            poseStack.scale(scale.x, scale.y, scale.z);
         }
+
+        // Apply position offset
+        Vector3f posOffset = boneState.getPositionOffset();
+        if (!posOffset.equals(0, 0, 0)) {
+            poseStack.translate(posOffset.x, posOffset.y, posOffset.z);
+        }
+
+        // Move back from pivot point
+        poseStack.translate(-pivot.x, -pivot.y, -pivot.z);
 
         Matrix4f currentModelMatrix = new Matrix4f(parentModelMatrix).mul(poseStack.peek());
 
@@ -176,10 +211,8 @@ public class ModelRenderer {
         }
 
         poseStack.pop();
-        bone.resetStateChanges();
     }
 
-    // ── Per-mesh draw ─────────────────────────────────────────────────────────
 
     /**
      * Draws a single mesh with EntityRenderContext customization.
@@ -237,11 +270,11 @@ public class ModelRenderer {
 
     /**
      * Appends the mesh-local origin + rotation pivot to {@code matrix} in-place.
-     *
-     * <h3>CRITICAL — {@code StrataMeshData.rotation()} is in RADIANS</h3>
+     * <p>
+     * {@code StrataMeshData.rotation()} is in RADIANS</h3>
      * These values come pre-converted from the model loader and are passed directly
      * to JOML's {@link Matrix4f#rotateZYX} which expects radians.
-     * Do NOT call {@code Math.toRadians()} on them — that was the rotation bug.
+     * Do NOT call {@code Math.toRadians()} on them
      */
     private void applyMeshLocalTransform(Matrix4f matrix, StrataMeshData meshData) {
         Vector3f origin = meshData.origin();
@@ -253,28 +286,9 @@ public class ModelRenderer {
             matrix.rotateZYX(rot.z, rot.y, rot.x); // JOML, radians, ZYX
             matrix.translate(-origin.x, -origin.y, -origin.z);
         } else {
-            // Tri-mesh: translate then rotate, no reverse translate — mirrors original renderMesh.
+            // mesh: translate then rotate, no reverse translate — mirrors original renderMesh.
             matrix.translate(origin.x, origin.y, origin.z);
             matrix.rotateZYX(rot.z, rot.y, rot.x); // JOML, radians, ZYX
-        }
-    }
-
-    // ── Matrix tracking (unchanged from original) ─────────────────────────────
-
-    private void updateBoneMatrices(StrataBone bone, Matrix4f localMatrix, Matrix4f parentModelMatrix) {
-        bone.setLocalSpaceMatrix(new Matrix4f(localMatrix));
-        Matrix4f modelMatrix = new Matrix4f(parentModelMatrix).mul(localMatrix);
-        bone.setModelSpaceMatrix(modelMatrix);
-        bone.setWorldSpaceMatrix(new Matrix4f(modelMatrix));
-    }
-
-    // ── Data classes ──────────────────────────────────────────────────────────
-
-    public record BoneTransform(Vector3f rotation, Vector3f translation, Vector3f scale) {
-        public BoneTransform {
-            rotation    = new Vector3f(rotation);
-            translation = new Vector3f(translation);
-            scale       = new Vector3f(scale);
         }
     }
 }

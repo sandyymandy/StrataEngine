@@ -69,17 +69,17 @@
           while (current instanceof Group) {
             chain.unshift({
               origin: current.origin || [0, 0, 0],
-              rotation: current.rotation || [0, 0, 0]
+              rotation: [0, 0, 0]  // Always use bind pose (no bone rotations)
             });
             current = current.parent;
           }
           return chain;
         }
-        
+
         // Transform a point through a chain of bone transforms
         function transformThroughChain(point, chain) {
           let result = [...point];
-          
+
           for (const transform of chain) {
             // Only apply rotation if it's non-zero
             if (transform.rotation[0] !== 0 || transform.rotation[1] !== 0 || transform.rotation[2] !== 0) {
@@ -87,116 +87,75 @@
               result[0] -= transform.origin[0];
               result[1] -= transform.origin[1];
               result[2] -= transform.origin[2];
-              
+
               // Rotate around pivot
               result = rotatePoint(result, transform.rotation);
-              
+
               // Translate back from pivot
               result[0] += transform.origin[0];
               result[1] += transform.origin[1];
               result[2] += transform.origin[2];
             }
           }
-          
+
           return result;
         }
-        
+
         // Process all cubes
         for (const cube of Cube.all) {
           if (!cube.visibility) continue;
-          
+
           const [x1, y1, z1] = cube.from;
           const [x2, y2, z2] = cube.to;
           const inflate = cube.inflate || 0;
-          const cubeOrigin = cube.origin || [0, 0, 0];
-          const cubeRotation = cube.rotation || [0, 0, 0];
-          
-          // Get all 8 corners of the cube RELATIVE TO CUBE ORIGIN
-          // This is the key fix: corners must be relative to origin before rotation
+
+          // For bind pose bounding box, we use the axis-aligned box without any rotations
+          // This gives the most predictable bounding box for game engines
           const corners = [
-            [x1 - inflate - cubeOrigin[0], y1 - inflate - cubeOrigin[1], z1 - inflate - cubeOrigin[2]],
-            [x2 + inflate - cubeOrigin[0], y1 - inflate - cubeOrigin[1], z1 - inflate - cubeOrigin[2]],
-            [x1 - inflate - cubeOrigin[0], y2 + inflate - cubeOrigin[1], z1 - inflate - cubeOrigin[2]],
-            [x2 + inflate - cubeOrigin[0], y2 + inflate - cubeOrigin[1], z1 - inflate - cubeOrigin[2]],
-            [x1 - inflate - cubeOrigin[0], y1 - inflate - cubeOrigin[1], z2 + inflate - cubeOrigin[2]],
-            [x2 + inflate - cubeOrigin[0], y1 - inflate - cubeOrigin[1], z2 + inflate - cubeOrigin[2]],
-            [x1 - inflate - cubeOrigin[0], y2 + inflate - cubeOrigin[1], z2 + inflate - cubeOrigin[2]],
-            [x2 + inflate - cubeOrigin[0], y2 + inflate - cubeOrigin[1], z2 + inflate - cubeOrigin[2]]
+            [x1 - inflate, y1 - inflate, z1 - inflate],
+            [x2 + inflate, y1 - inflate, z1 - inflate],
+            [x1 - inflate, y2 + inflate, z1 - inflate],
+            [x2 + inflate, y2 + inflate, z1 - inflate],
+            [x1 - inflate, y1 - inflate, z2 + inflate],
+            [x2 + inflate, y1 - inflate, z2 + inflate],
+            [x1 - inflate, y2 + inflate, z2 + inflate],
+            [x2 + inflate, y2 + inflate, z2 + inflate]
           ];
-          
-          // Get full parent chain (NOT including cube's own rotation)
-          const parentChain = cube.parent instanceof Group ? getParentChain(cube.parent) : [];
-          
-          // Transform each corner
-          for (let corner of corners) {
-            // First, apply cube's own rotation around its origin (if any)
-            if (cubeRotation[0] !== 0 || cubeRotation[1] !== 0 || cubeRotation[2] !== 0) {
-              corner = rotatePoint(corner, cubeRotation);
-            }
-            
-            // Add cube origin back to get world position
-            let worldPos = [
-              corner[0] + cubeOrigin[0],
-              corner[1] + cubeOrigin[1],
-              corner[2] + cubeOrigin[2]
-            ];
-            
-            // Then apply parent transforms
-            const transformed = transformThroughChain(worldPos, parentChain);
-            
-            minX = Math.min(minX, transformed[0]);
-            minY = Math.min(minY, transformed[1]);
-            minZ = Math.min(minZ, transformed[2]);
-            maxX = Math.max(maxX, transformed[0]);
-            maxY = Math.max(maxY, transformed[1]);
-            maxZ = Math.max(maxZ, transformed[2]);
+
+          // No transforms applied - pure bind pose
+          for (const corner of corners) {
+            minX = Math.min(minX, corner[0]);
+            minY = Math.min(minY, corner[1]);
+            minZ = Math.min(minZ, corner[2]);
+            maxX = Math.max(maxX, corner[0]);
+            maxY = Math.max(maxY, corner[1]);
+            maxZ = Math.max(maxZ, corner[2]);
           }
         }
-        
+
         // Process all meshes
         for (const mesh of Mesh.all) {
           if (!mesh.visibility) continue;
-          
-          // Get parent chain
-          const parentChain = mesh.parent instanceof Group ? getParentChain(mesh.parent) : [];
-          
-          // Mesh transform
+
           const meshOrigin = mesh.origin || [0, 0, 0];
-          const meshRotation = mesh.rotation || [0, 0, 0];
-          
-          // Process each vertex
+
+          // Process each vertex - for bind pose, just use raw vertex positions
           for (const key in mesh.vertices) {
             const vertex = mesh.vertices[key];
-            
-            // Mesh vertices are relative to mesh origin
-            let worldVertex = [
+
+            // Mesh vertices are relative to mesh origin, add origin to get position
+            const worldVertex = [
               vertex[0] + meshOrigin[0],
               vertex[1] + meshOrigin[1],
               vertex[2] + meshOrigin[2]
             ];
-            
-            // Apply mesh rotation around its origin
-            if (meshRotation[0] !== 0 || meshRotation[1] !== 0 || meshRotation[2] !== 0) {
-              worldVertex[0] -= meshOrigin[0];
-              worldVertex[1] -= meshOrigin[1];
-              worldVertex[2] -= meshOrigin[2];
-              
-              worldVertex = rotatePoint(worldVertex, meshRotation);
-              
-              worldVertex[0] += meshOrigin[0];
-              worldVertex[1] += meshOrigin[1];
-              worldVertex[2] += meshOrigin[2];
-            }
-            
-            // Apply parent transforms
-            const transformed = transformThroughChain(worldVertex, parentChain);
-            
-            minX = Math.min(minX, transformed[0]);
-            minY = Math.min(minY, transformed[1]);
-            minZ = Math.min(minZ, transformed[2]);
-            maxX = Math.max(maxX, transformed[0]);
-            maxY = Math.max(maxY, transformed[1]);
-            maxZ = Math.max(maxZ, transformed[2]);
+
+            minX = Math.min(minX, worldVertex[0]);
+            minY = Math.min(minY, worldVertex[1]);
+            minZ = Math.min(minZ, worldVertex[2]);
+            maxX = Math.max(maxX, worldVertex[0]);
+            maxY = Math.max(maxY, worldVertex[1]);
+            maxZ = Math.max(maxZ, worldVertex[2]);
           }
         }
         

@@ -7,6 +7,7 @@ import engine.strata.client.frontend.render.model.StrataMeshData;
 import engine.strata.client.frontend.render.model.StrataModel;
 import engine.strata.core.io.ResourceManager;
 import engine.strata.util.Identifier;
+import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,7 +74,10 @@ public class StrataModelLoader {
                     }
                 }
 
-                StrataBone bone = new StrataBone(name, null, pivot, rotation, meshIds);
+                // Parse hidden field (defaults to false if not present)
+                boolean hidden = boneObj.has("hidden");
+
+                StrataBone bone = new StrataBone(name, null, pivot, rotation, meshIds, hidden);
                 boneMap.put(name, bone);
 
                 // The bone with parent=null is the root
@@ -280,10 +284,11 @@ public class StrataModelLoader {
                 "blockbench_cuboid", "main", new Vector3f(), new Vector3f(), null, cuboidData
         ));
 
-        // 5. Build the bone hierarchy
+        // 5. Build the bone hierarchy (with identity quaternion rotation)
         StrataBone root = new StrataBone(
                 "root", null, new Vector3f(0, 0, 0),
-                new Vector3f(0, 0, 0), Collections.singletonList("fallback_cuboid")
+                new Vector3f(), // Identity rotation
+                Collections.singletonList("fallback_cuboid")
         );
 
         // Create a default bounding box for the fallback cube

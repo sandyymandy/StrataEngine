@@ -1,5 +1,6 @@
 package engine.strata.client.frontend.render.renderer.entity;
 
+import engine.strata.client.frontend.render.animation.AnimationProcessor;
 import engine.strata.util.Identifier;
 import org.joml.Vector2f;
 import org.joml.Vector4f;
@@ -43,6 +44,16 @@ import java.util.Objects;
 public class EntityRenderContext {
 
     // ══════════════════════════════════════════════════════════════════════════
+    // ANIMATION PROCESSOR
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * The animation processor that manages bone states for this entity.
+     * Can be null if entity doesn't use animations.
+     */
+    private AnimationProcessor animationProcessor;
+
+    // ══════════════════════════════════════════════════════════════════════════
     // PER-BONE CUSTOMIZATION
     // ══════════════════════════════════════════════════════════════════════════
 
@@ -59,6 +70,25 @@ public class EntityRenderContext {
     private Vector4f globalTint = new Vector4f(1, 1, 1, 1);
     private float globalEmissive = 0.0f;
     private Vector2f globalUVOffset = new Vector2f(0, 0);
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ANIMATION PROCESSOR
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Sets the animation processor for this context.
+     */
+    public void setAnimationProcessor(AnimationProcessor processor) {
+        this.animationProcessor = processor;
+    }
+
+    /**
+     * Gets the animation processor for this context.
+     * May be null if entity doesn't use animations.
+     */
+    public AnimationProcessor getAnimationProcessor() {
+        return animationProcessor;
+    }
 
     // ══════════════════════════════════════════════════════════════════════════
     // BONE TINTING

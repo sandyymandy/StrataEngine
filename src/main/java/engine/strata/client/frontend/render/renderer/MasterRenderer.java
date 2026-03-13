@@ -1,5 +1,6 @@
 package engine.strata.client.frontend.render.renderer;
 
+import engine.helios.physics.AABB;
 import engine.helios.rendering.*;
 import engine.helios.rendering.shader.ShaderManager;
 import engine.helios.rendering.shader.ShaderStack;
@@ -11,7 +12,6 @@ import engine.strata.client.frontend.render.Camera;
 import engine.strata.client.frontend.render.RenderLayers;
 import engine.strata.client.frontend.render.model.GpuModelBaker;
 import engine.strata.client.frontend.render.model.io.ModelManager;
-import engine.strata.client.frontend.render.renderer.entity.EntityRenderer;
 import engine.strata.debug.DisplayDebugInfo;
 import engine.strata.entity.Entity;
 import engine.strata.entity.entities.PlayerEntity;
@@ -33,7 +33,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
 
-import static engine.strata.util.math.Math.fLerp;
 import static engine.strata.util.math.Math.lerp;
 
 /**
@@ -69,6 +68,7 @@ public class MasterRenderer {
     private final ModelRenderer modelRenderer;
     private final GuiRenderer guiRenderer;
     private final BlockOutlineRenderer blockOutlineRenderer;
+    private final BoundingBoxDebugRenderer debugBoxRenderer;
     private final EntityRenderer entityRenderer;
     private final BlockModelLoader blockModelLoader;
 
@@ -88,6 +88,7 @@ public class MasterRenderer {
         this.client                = client;
         this.camera                = camera;
         this.poseStack             = new MatrixStack();
+        this.debugBoxRenderer = new BoundingBoxDebugRenderer();
         this.modelRenderer         = new ModelRenderer();
         this.guiRenderer           = new GuiRenderer();
         this.entityRenderer        = new EntityRenderer();
@@ -236,30 +237,21 @@ public class MasterRenderer {
         World world = client.getWorld();
         if (world == null || entities == null) return;
 
-        Entity cameraEntity = client.getCameraEntity();
-
-        float camX = (float) lerp(cameraEntity.prevX, cameraEntity.getPosition().getX(), partialTicks);
-        float camY = (float) lerp(cameraEntity.prevY, cameraEntity.getPosition().getY(), partialTicks);
-        float camZ = (float) lerp(cameraEntity.prevZ, cameraEntity.getPosition().getZ(), partialTicks);
-
         for (Entity entity : entities) {
-            // Interpolate position for culling checks
-            float x = fLerp((float) entity.prevX, (float) entity.getPosition().getX(), partialTicks);
-            float y = fLerp((float) entity.prevY, (float) entity.getPosition().getY(), partialTicks);
-            float z = fLerp((float) entity.prevZ, (float) entity.getPosition().getZ(), partialTicks);
+            AABB worldBox = entity.getModelBoundingBox(partialTicks);
 
-            // Distance culling
-            float dx = x - camX, dy = y - camY, dz = z - camZ;
-            if (dx*dx + dy*dy + dz*dz > ENTITY_RENDER_DISTANCE * ENTITY_RENDER_DISTANCE) {
-                entitiesCulled++;
-                continue;
-            }
 
             // Frustum culling
-            if (!camera.isSphereVisible(x, y, z, entity.getKey().getWidth())) {
+            if (!camera.isAabbVisibleWithDistance(worldBox, ENTITY_RENDER_DISTANCE)) {
                 entitiesCulled++;
                 continue;
             }
+
+            debugBoxRenderer.render(
+                    worldBox,
+                    camera.getProjectionMatrix(), camera.getViewMatrix(),
+                    BoundingBoxDebugRenderer.Color.YELLOW
+            );
 
             // Render entity using universal renderer
             MatrixStack entityPoseStack = new MatrixStack();

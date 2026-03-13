@@ -2,7 +2,7 @@
   "id": "strata:mika",
   "format_version": 3,
   "textures": {
-    "ellie.png": {
+    "mika.png": {
       "path": "strata:entities/mika",
       "width": 4096,
       "height": 4096,

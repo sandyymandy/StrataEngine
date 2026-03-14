@@ -39,4 +39,8 @@ public class Random {
     public double nextDouble() {
         return (nextLong() >>> 11) * 1.1102230246251565E-16;
     }
+
+    public boolean nextBoolean() {
+        return nextInt(1) != 0;
+    }
 }

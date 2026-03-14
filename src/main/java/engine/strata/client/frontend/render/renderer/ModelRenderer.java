@@ -157,7 +157,7 @@ public class ModelRenderer {
         // Get bone state (handles animation offsets)
         BoneState boneState = (animProcessor != null)
                 ? animProcessor.getBoneState(bone.getName())
-                : new BoneState();
+                : new BoneState(!bone.isDefaultHidden());
 
         // Check visibility (both BoneState and EntityRenderContext)
         if (!boneState.isVisible() || !context.isBoneVisible(bone.getName())) {

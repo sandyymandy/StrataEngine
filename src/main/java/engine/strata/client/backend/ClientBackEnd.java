@@ -14,6 +14,7 @@ import engine.strata.event.events.KeyEvent;
 import engine.strata.event.events.MouseEvent;
 import engine.strata.event.events.MouseScrollEvent;
 import engine.strata.registry.registries.EntityRegistry;
+import engine.strata.util.Vec3d;
 import engine.strata.world.World;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,10 +35,8 @@ public class ClientBackEnd {
         StrataClient.getInstance().getEventBus().subscribe(MouseScrollEvent.class, inputSystem::handleScrollEvent);
 
         this.world = new World("TestWorld", System.currentTimeMillis());
-        this.player = EntityRegistry.PLAYER.create(world);
-        this.player.setPosition(0, 90, 0);
-        world.addEntity(player);
-        spawnTestEntities(EntityRegistry.BIA,5);
+        this.player = (PlayerEntity) world.spawnEntity(EntityRegistry.PLAYER, new Vec3d(0, 90, 0));
+        spawnTestEntities(EntityRegistry.CHARACTER,5);
         spawnTestEntities(EntityRegistry.MIKA,10);
 
         // Pre-load chunks around spawn
@@ -49,10 +48,7 @@ public class ClientBackEnd {
         LOGGER.info("Spawning test entities...");
 
         for (int i = 0; i < 15; i++) {
-            Entity bia = entityKey.create(world);
-            bia.setPosition(i + 1.5, 120, -pos+.5);
-            bia.setHeadPitch((float) (i / 0.4));
-            world.addEntity(bia);
+            world.spawnEntity(entityKey, i + 1.5, 120, -pos+.5);
         }
     }
 

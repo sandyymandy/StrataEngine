@@ -64,7 +64,7 @@ public class StrataModelLoader {
                 String name = boneObj.get("name").getAsString();
 
                 Vector3f pivot = parseVector3f(boneObj.getAsJsonArray("pivot"));
-                Vector3f rotation = boneObj.has("rotation") ? parseVector3f(boneObj.getAsJsonArray("rotation")) : new Vector3f();
+                Vector3f rotation = boneObj.has("rotation") ? parseVector3fToRadians(boneObj.getAsJsonArray("rotation")) : new Vector3f();
 
                 List<String> meshIds = new ArrayList<>();
                 JsonArray meshesArray = boneObj.getAsJsonArray("meshes");

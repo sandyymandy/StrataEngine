@@ -10,8 +10,5 @@ public class BiaEntity extends Entity {
         super(key, world);
     }
 
-    @Override
-    public Identifier getModelId() {
-        return Identifier.ofEngine("core");
-    }
+
 }

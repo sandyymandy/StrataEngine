@@ -46,6 +46,11 @@ public abstract class SpatialObject {
         this.isDirty = true;
     }
 
+    public void setPosition(Vec3d vec3d) {
+        this.getPosition().set(vec3d);
+        this.isDirty = true;
+    }
+
     public void move(float dx, float dy, float dz) {
         this.getPosition().add(dx, dy, dz);
         this.isDirty = true;

@@ -4,6 +4,7 @@ import engine.helios.physics.PhysicsManager;
 import engine.strata.client.StrataClient;
 import engine.strata.entity.Entity;
 import engine.strata.entity.entities.PlayerEntity;
+import engine.strata.entity.util.EntityKey;
 import engine.strata.registry.registries.Registries;
 import engine.strata.util.BlockPos;
 import engine.strata.util.math.Random;
@@ -226,13 +227,23 @@ public class World {
         return chunkManager.isChunkLoadedAtWorldPos(worldX, worldZ);
     }
 
+    public Entity spawnEntity(EntityKey<?> entityKey, Vec3d pos) {
+        return spawnEntity(entityKey, pos.getX(), pos.getY(), pos.getZ());
+    }
+
+    public Entity spawnEntity(EntityKey<?> entityKey, double posX, double posY, double posZ) {
+        Entity entity = entityKey.create(this);
+        entity.setPosition(posX, posY, posZ);
+        this.addEntity(entity);
+        return entity;
+    }
+
     public void addEntity(Entity entity) {
         if (entity == null) {
             LOGGER.warn("Attempted to add null entity");
             return;
         }
-
-        UUID id = UUID.randomUUID();
+        UUID id = entity.getUuid();
         entities.put(id, entity);
         updateEntityList();
 

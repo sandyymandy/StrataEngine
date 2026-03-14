@@ -46,13 +46,13 @@ public final class GenderManager {
      * the entire upper body for female/futanari.
      */
     private static final Pattern MALE_BONE_PATTERN = Pattern.compile(
-            "meshMale.*|penis|shaft|tip|ball|texturing",
+            "meshMale.*|penis",
             Pattern.CASE_INSENSITIVE
     );
 
     /** Matches female-specific mesh bones from core.strmodel. */
     private static final Pattern FEMALE_BONE_PATTERN = Pattern.compile(
-            "meshFemale.*|breasts|breastL|breastR|nippleL|nippleR|vagina|cumflation.*",
+            "meshFemale.*|breasts|vagina|cumflation.*",
             Pattern.CASE_INSENSITIVE
     );
 
@@ -118,7 +118,7 @@ public final class GenderManager {
 
         BoneCategories categories = categorizeBones(model);
 
-        Set<String> maleGenitalBones = filterByKeyword(categories.maleBones, "penis", "shaft", "tip", "ball", "texturing");
+        Set<String> maleGenitalBones = filterByKeyword(categories.maleBones, "penis");
         Set<String> femaleGenitalBones = filterByKeyword(categories.femaleBones, "vagina");
         Set<String> maleBodyBones = minus(categories.maleBones, maleGenitalBones);
         Set<String> femaleBodyBones = minus(categories.femaleBones, femaleGenitalBones);
@@ -163,7 +163,7 @@ public final class GenderManager {
 
         Set<String> maleTorsoBones = filterByKeyword(categories.maleBones, "torso");
         Set<String> malePelvisBones = filterByKeyword(categories.maleBones, "pelvis");
-        Set<String> maleGenitalBones = filterByKeyword(categories.maleBones, "penis", "shaft", "tip", "ball", "texturing");
+        Set<String> maleGenitalBones = filterByKeyword(categories.maleBones, "penis");
         Set<String> maleArmBones = filterByKeyword(categories.maleBones, "arm");
         Set<String> maleLegBones = filterByKeyword(categories.maleBones, "leg");
 

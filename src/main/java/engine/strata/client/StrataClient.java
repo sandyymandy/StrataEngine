@@ -7,7 +7,7 @@ import engine.strata.client.frontend.window.Window;
 import engine.strata.client.frontend.window.WindowConfig;
 import engine.strata.client.frontend.render.Camera;
 import engine.strata.client.frontend.render.renderer.MasterRenderer;
-import engine.strata.debug.DisplayDebugInfo;
+import engine.strata.util.debug.DisplayDebugInfo;
 import engine.strata.entity.Entity;
 import engine.strata.entity.entities.PlayerEntity;
 import engine.strata.event.EventBus;

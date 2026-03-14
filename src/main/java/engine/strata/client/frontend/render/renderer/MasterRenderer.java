@@ -12,7 +12,7 @@ import engine.strata.client.frontend.render.Camera;
 import engine.strata.client.frontend.render.RenderLayers;
 import engine.strata.client.frontend.render.model.GpuModelBaker;
 import engine.strata.client.frontend.render.model.io.ModelManager;
-import engine.strata.debug.DisplayDebugInfo;
+import engine.strata.util.debug.DisplayDebugInfo;
 import engine.strata.entity.Entity;
 import engine.strata.entity.entities.PlayerEntity;
 import engine.strata.util.Identifier;

@@ -8,7 +8,7 @@ import engine.strata.client.frontend.window.Window;
 import engine.strata.client.frontend.render.Camera;
 import engine.strata.client.frontend.render.renderer.MasterRenderer;
 import engine.strata.core.entrypoint.EntrypointManager;
-import engine.strata.debug.DisplayDebugInfo;
+import engine.strata.util.debug.DisplayDebugInfo;
 import engine.strata.entity.Entity;
 import engine.strata.util.Identifier;
 import org.lwjgl.glfw.GLFW;

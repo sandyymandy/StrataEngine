@@ -21,6 +21,15 @@ import java.util.Map;
  * <p>All rotation values are Euler angles in radians (x=pitch, y=yaw, z=roll).
  * Degree helpers are provided where source data is in degrees.
  *
+ * <h3>Visibility cascading:</h3>
+ * <p>Calling {@link #setBoneVisible(String, boolean)} propagates the visibility
+ * to all descendant bones that have not been explicitly overridden this frame.
+ * This means you only need to call {@code setBoneVisible("penis", true)} and
+ * {@code shaft}, {@code tip}, {@code ball}, {@code texturing} will all update
+ * automatically. To override a specific child, call {@code setBoneVisible} on it
+ * directly after setting the parent — it will be marked explicit and the parent
+ * cascade won't touch it again.
+ *
  * <p>Not thread-safe. Access only from the render thread.
  */
 public class AnimationProcessor {
@@ -59,14 +68,11 @@ public class AnimationProcessor {
 
     // Bone state access
 
-    /** Returns the bone state for {@code boneName}, creating one if absent. */
     public BoneState getBoneState(String boneName) {
         return boneStates.computeIfAbsent(boneName, k -> new BoneState());
     }
 
     public boolean hasBoneState(String boneName) { return boneStates.containsKey(boneName); }
-
-    /** Returns all bone states. Used by ModelRenderer during rendering. */
     public Map<String, BoneState> getAllBoneStates() { return boneStates; }
 
     // Reset
@@ -119,20 +125,53 @@ public class AnimationProcessor {
         getBoneState(boneName).setScaleOffset(uniformScale);
     }
 
+    /**
+     * Sets the visibility of a bone and cascades the change to all its descendants.
+     *
+     * <p>Descendants that have already been explicitly set this frame (via a direct
+     * call to this method) are not overridden. This means call order matters:
+     * set the parent first, then override specific children afterwards.
+     *
+     * <pre>
+     * // Show the whole penis group in one call:
+     * anim.setBoneVisible("penis", true);
+     *
+     * // Override just one child after the parent cascade:
+     * anim.setBoneVisible("tip", false); // only tip stays hidden
+     * </pre>
+     */
     public void setBoneVisible(String boneName, boolean visible) {
         getBoneState(boneName).setVisible(visible);
+        if (model != null) {
+            StrataBone bone = model.getBone(boneName);
+            if (bone != null) {
+                cascadeVisibility(bone, visible);
+            }
+        }
+    }
+
+    /**
+     * Recursively propagates {@code visible} to all descendants that have not
+     * been explicitly set this frame.
+     */
+    private void cascadeVisibility(StrataBone bone, boolean visible) {
+        for (StrataBone child : bone.getChildren()) {
+            BoneState childState = getBoneState(child.getName());
+            if (!childState.isExplicitlySet()) {
+                childState.setVisibleInherited(visible);
+                cascadeVisibility(child, visible);
+            }
+            // If explicitly set, skip this child but still recurse — a grandchild
+            // that is NOT explicitly set should still inherit from this child's
+            // own explicit value, not from the grandparent's cascade.
+        }
     }
 
     // Open/closed morph states
-    //
-    // Each morph pair has a "closed" bone (visible by default) and an "open" bone
-    // (hidden by default). Calling setVaginaOpen(true) swaps which one is visible.
-    // Wire these up to your animation event system when ready.
 
     /**
      * Sets the vagina morph state.
      * {@code true} shows {@code vaginaOpen} and hides {@code vaginaClosed}.
-     * {@code false} restores the default (closed).
      */
     public void setVaginaOpen(boolean open) {
         setMorphPair("vaginaClosed", "vaginaOpen", open);
@@ -141,7 +180,6 @@ public class AnimationProcessor {
     /**
      * Sets the anus morph state.
      * {@code true} shows {@code anusOpen} and hides {@code anusClosed}.
-     * {@code false} restores the default (closed).
      */
     public void setAnusOpen(boolean open) {
         setMorphPair("anusClosed", "anusOpen", open);
@@ -149,25 +187,23 @@ public class AnimationProcessor {
 
     /**
      * Generic morph-pair toggle. Hides one bone and shows the other.
-     * Use this for any future paired open/closed bones.
+     * Cascades to descendants of each bone automatically.
      *
-     * @param closedBone Bone name that is visible in the closed/default state
-     * @param openBone   Bone name that is visible in the open state
+     * @param closedBone Bone visible in the default/closed state
+     * @param openBone   Bone visible in the open state
      * @param open       {@code true} to switch to the open state
      */
     public void setMorphPair(String closedBone, String openBone, boolean open) {
-        getBoneState(closedBone).setVisible(!open);
-        getBoneState(openBone).setVisible(open);
+        setBoneVisible(closedBone, !open);
+        setBoneVisible(openBone, open);
     }
 
     // Common animation utilities
 
-    /** Applies head yaw/pitch (degrees) to the "head" bone. */
     public void applyHeadRotation(float headYaw, float headPitch) {
         applyHeadRotation("head", headYaw, headPitch);
     }
 
-    /** Applies head yaw/pitch (degrees) to a custom bone. */
     public void applyHeadRotation(String boneName, float headYaw, float headPitch) {
         getBoneState(boneName).setRotationOffset(
                 (float) Math.toRadians(headPitch),
@@ -176,12 +212,6 @@ public class AnimationProcessor {
         );
     }
 
-    /**
-     * Applies a simple walking animation to legs and arms using sine waves.
-     *
-     * @param walkDistance Total distance walked (accumulates over time)
-     * @param walkSpeed    Current walk speed (0.0 = standing, 1.0 = running)
-     */
     public void applyWalkingAnimation(float walkDistance, float walkSpeed) {
         float leftLegRot  = (float) Math.sin(walkDistance * 0.6662f) * 1.4f * walkSpeed;
         float rightLegRot = (float) Math.sin(walkDistance * 0.6662f + Math.PI) * 1.4f * walkSpeed;
@@ -194,23 +224,11 @@ public class AnimationProcessor {
         setBoneRotation("rightArm", rightArmRot, 0, 0);
     }
 
-    /**
-     * Applies a breathing scale animation to the "body" bone.
-     *
-     * @param time      Current world time or entity age
-     * @param intensity Breathing intensity (0.0 – 1.0)
-     */
     public void applyBreathingAnimation(float time, float intensity) {
         float breathScale = 1.0f + (float) Math.sin(time * 0.1f) * 0.02f * intensity;
         setBoneScale("body", 1.0f, breathScale, 1.0f);
     }
 
-    /**
-     * Applies a hurt shake to the "body" bone.
-     *
-     * @param hurtTime    Time since last hurt (counts down)
-     * @param maxHurtTime Maximum hurt time
-     */
     public void applyHurtAnimation(int hurtTime, int maxHurtTime) {
         if (hurtTime <= 0) return;
         float progress = (float) hurtTime / maxHurtTime;
@@ -218,13 +236,6 @@ public class AnimationProcessor {
         setBoneRotation("body", 0, 0, shake);
     }
 
-    /**
-     * Linearly interpolates the rotation of {@code boneName} between two Euler-radian values.
-     *
-     * @param from     Starting rotation (radians)
-     * @param to       Target rotation (radians)
-     * @param progress Interpolation factor (0.0 – 1.0)
-     */
     public void lerpBoneRotation(String boneName, Vector3f from, Vector3f to, float progress) {
         getBoneState(boneName).setRotationOffset(new Vector3f(from).lerp(to, progress));
     }

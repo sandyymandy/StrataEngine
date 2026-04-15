@@ -33,35 +33,35 @@
       function rotatePoint(point, rotation) {
         const [x, y, z] = point;
         const [rx, ry, rz] = rotation.map(deg => deg * Math.PI / 180);
-        
+
         // Rotation matrices - Blockbench uses ZYX order
         const cosX = Math.cos(rx), sinX = Math.sin(rx);
         const cosY = Math.cos(ry), sinY = Math.sin(ry);
         const cosZ = Math.cos(rz), sinZ = Math.sin(rz);
-        
+
         // Apply Z rotation
         let nx = x * cosZ - y * sinZ;
         let ny = x * sinZ + y * cosZ;
         let nz = z;
-        
+
         // Apply Y rotation
         let tx = nx * cosY + nz * sinY;
         let ty = ny;
         let tz = -nx * sinY + nz * cosY;
-        
+
         // Apply X rotation
         nx = tx;
         ny = ty * cosX - tz * sinX;
         nz = ty * sinX + tz * cosX;
-        
+
         return [nx, ny, nz];
       }
-      
+
       // Calculate bounding box for the entire model
       function calculateModelBoundingBox() {
         let minX = Infinity, minY = Infinity, minZ = Infinity;
         let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-        
+
         // Build parent transform chain for each group
         function getParentChain(group) {
           const chain = [];
@@ -158,7 +158,7 @@
             maxZ = Math.max(maxZ, worldVertex[2]);
           }
         }
-        
+
         // Return default if no elements processed
         if (minX === Infinity) {
           return {
@@ -166,7 +166,7 @@
             max: [0, 0, 0]
           };
         }
-        
+
         return {
           min: [minX, minY, minZ],
           max: [maxX, maxY, maxZ]
@@ -183,13 +183,13 @@
         }
         return null;
       }
-      
+
       // Helper function to get the element's texture and validate consistency
       function getElementTexture(cube) {
         let textureRef = "untextured";
         let foundTexture = null;
         const textures = new Set();
-        
+
         if (cube.faces) {
           for (let faceName of ['north', 'south', 'east', 'west', 'up', 'down']) {
             const face = cube.faces[faceName];
@@ -202,7 +202,7 @@
             }
           }
         }
-        
+
         // Warn if multiple textures on one element
         if (textures.size > 1) {
           console.warn(`Element "${cube.name || 'unnamed'}" has multiple textures: ${Array.from(textures).join(', ')}. Using first found: ${foundTexture}`);
@@ -212,10 +212,10 @@
             icon: 'warning'
           });
         }
-        
+
         return foundTexture || textureRef;
       }
-      
+
     // Helper function to convert Blockbench cube to raw cuboid data
     function exportCubeData(cube) {
       // Get texture reference - validates consistency across faces
@@ -274,7 +274,7 @@
         // Get texture reference from the mesh's faces - validate consistency
         let textureRef = "untextured";
         const textures = new Set();
-        
+
         // Check all faces for textures
         if (mesh.faces) {
           for (let faceKey in mesh.faces) {
@@ -290,7 +290,7 @@
             }
           }
         }
-        
+
         // Warn if multiple textures on one mesh
         if (textures.size > 1) {
           console.warn(`Mesh has multiple textures: ${Array.from(textures).join(', ')}. Using first found: ${textureRef}`);
@@ -300,16 +300,16 @@
             icon: 'warning'
           });
         }
-        
+
         // Deep clone to avoid references
         const verticesCopy = {};
         const facesCopy = {};
-        
+
         // Copy vertices
         for (let key in mesh.vertices) {
           verticesCopy[key] = [...mesh.vertices[key]];
         }
-        
+
         // Copy faces (without texture field since we use per-mesh texture)
         for (let faceKey in mesh.faces) {
           const face = mesh.faces[faceKey];
@@ -317,7 +317,7 @@
             vertices: [...face.vertices],
             uv: {}
           };
-          
+
           // Copy UV data
           if (face.uv) {
             for (let vKey in face.uv) {
@@ -351,7 +351,7 @@
 
         return properties;
       }
-      
+
       // Create Blockbench element (Cube or Mesh) from stored data
         function createBlockbenchMesh(meshData, parent, meshKey) {
 
@@ -452,7 +452,7 @@
           mesh.addTo(parent);
           return mesh;
         }
-      
+
       // Prompt for model ID
       function promptForModelId(defaultNamespace = 'strata', defaultName = 'model') {
         return new Promise((resolve) => {
@@ -485,19 +485,19 @@
           dialog.show();
         });
       }
-      
+
       // Define the Strata codec
       codec = new Codec('strata_model', {
         name: 'Strata Model',
         extension: 'strmodel',
         remember: true,
-        
+
         compile(options) {
           const bones = [];
           const meshes = {};
           const usedTextures = new Set();
           const textureData = {};
-        
+
 
           function processBone(group, parentName = null) {
             const bone = {
@@ -515,38 +515,38 @@
               if(!group.visibility) {
                 bone.hidden = true;
               }
-              
+
               bone.meshes = [];
-            
-            
+
+
             group.children.forEach(child => {
               if (child instanceof Group) {
                 processBone(child, group.name);
               } else if (child instanceof _Cube || child instanceof _Mesh) {
                 const meshKey = `${group.name}_mesh_${Object.keys(meshes).length}`;
                 bone.meshes.push(meshKey);
-                
+
                 if (child instanceof _Cube) {
                   meshes[meshKey] = exportCubeData(child);
                 } else {
                   meshes[meshKey] = exportMeshData(child);
                 }
-                
+
                 if (meshes[meshKey].texture !== "untextured") {
                   usedTextures.add(meshes[meshKey].texture);
                 }
               }
             });
-            
+
             bones.push(bone);
           }
-          
+
           Group.all.forEach(group => {
             if (!group.parent || group.parent === 'root') {
               processBone(group);
             }
           });
-          
+
           usedTextures.forEach(texName => {
             // Find the actual Blockbench texture object by name
             const bbTex = Texture.all.find(t => t.name === texName);
@@ -554,7 +554,7 @@
             if (bbTex) {
               // Get the width and height directly from the Blockbench texture object
               textureData[texName] = {
-                uv_width: bbTex.uv_width, 
+                uv_width: bbTex.uv_width,
                 uv_height: bbTex.uv_height
               };
             } else if (texName === "untextured") {
@@ -563,7 +563,7 @@
             }
           });
 
-          
+
           return {
             id: options.modelId || 'strata:model',
             format_version: STRATA_FORMAT_VERSION,
@@ -573,15 +573,15 @@
             meshes: meshes
           };
         },
-        
+
         parse(model, path) {
           this.dispatchEvent('parse', {model});
-          
+
           // AUTO-CREATE TEXTURES ON IMPORT
           if (model.textures && typeof model.textures === 'object') {
             Object.entries(model.textures).forEach(([texName, data]) => {
               let existing = Texture.all.find(t => t.name === texName);
-              
+
               if (!existing) {
                 // Create new texture with dimensions from the model file
                 new Texture({
@@ -597,9 +597,9 @@
               }
             });
           }
-          
+
           const boneGroups = {};
-          
+
           if (model.bones) {
             model.bones.forEach(bone => {
               const group = new Group({
@@ -616,7 +616,7 @@
               }
 
               boneGroups[bone.name] = group;
-              
+
               if (bone.meshes && model.meshes) {
                 bone.meshes.forEach(meshName => {
                   const meshData = model.meshes[meshName];
@@ -626,17 +626,17 @@
                 });
               }
             });
-            
+
             model.bones.forEach(bone => {
               if (bone.parent && boneGroups[bone.parent]) {
                 boneGroups[bone.name].addTo(boneGroups[bone.parent]);
               }
             });
           }
-          
+
           this.dispatchEvent('parsed', {model});
         },
-        
+
         compile_animation(animation, modelId) {
           const animData = {
             id: modelId,
@@ -646,15 +646,15 @@
             bones: {},
             events: {}
           };
-          
+
           for (let uuid in animation.animators) {
             const animator = animation.animators[uuid];
             const bone = animator.group;
-            
+
             if (!bone) continue;
-            
+
             const boneData = {};
-            
+
             if (animator.rotation && animator.rotation.length > 0) {
               boneData.rotation = [];
               animator.rotation.forEach(kf => {
@@ -665,7 +665,7 @@
                 boneData.rotation.push(keyframe);
               });
             }
-            
+
             if (animator.position && animator.position.length > 0) {
               boneData.position = [];
               animator.position.forEach(kf => {
@@ -676,7 +676,7 @@
                 boneData.position.push(keyframe);
               });
             }
-            
+
             if (animator.scale && animator.scale.length > 0) {
               boneData.scale = [];
               animator.scale.forEach(kf => {
@@ -687,35 +687,35 @@
                 boneData.scale.push(keyframe);
               });
             }
-            
+
             if (Object.keys(boneData).length > 0) {
               animData.bones[bone.name] = boneData;
             }
           }
-          
+
           if (animation.markers && animation.markers.length > 0) {
             animation.markers.forEach(marker => {
               animData.events[marker.time.toString()] = marker.name;
             });
           }
-          
+
           return animData;
         },
-        
+
         parse_animation(data, path, name) {
           const animation = new Animation({
             name: name,
             length: data.length || 1,
             loop: data.loop ? 'loop' : 'once'
           }).add();
-          
+
           if (data.bones) {
             Object.entries(data.bones).forEach(([boneName, tracks]) => {
               const group = Group.all.find(g => g.name === boneName);
               if (!group) return;
-              
+
               const animator = animation.getBoneAnimator(group);
-              
+
               if (tracks.rotation) {
                 tracks.rotation.forEach(kfObj => {
                   Object.entries(kfObj).forEach(([time, data]) => {
@@ -731,7 +731,7 @@
                   });
                 });
               }
-              
+
               if (tracks.position) {
                 tracks.position.forEach(kfObj => {
                   Object.entries(kfObj).forEach(([time, data]) => {
@@ -747,7 +747,7 @@
                   });
                 });
               }
-              
+
               if (tracks.scale) {
                 tracks.scale.forEach(kfObj => {
                   Object.entries(kfObj).forEach(([time, data]) => {
@@ -765,7 +765,7 @@
               }
             });
           }
-          
+
           if (data.events) {
             Object.entries(data.events).forEach(([time, eventName]) => {
               animation.markers.push({
@@ -774,11 +774,11 @@
               });
             });
           }
-          
+
           return animation;
         }
       });
-      
+
       // Create the Strata format
       format = new ModelFormat({
         id: 'strata_model_format',
@@ -816,21 +816,21 @@
         animated_textures: true,
         animation_files: true,
         animation_mode: true,
-        
+
         animation_file_format: {
           extension: 'stranim',
           remember: true,
-          
+
           compile(options) {
             const animations = {};
-            
+
             Animation.all.forEach(anim => {
               animations[anim.name] = codec.compile_animation(anim, options.modelId);
             });
-            
+
             return animations;
           },
-          
+
           parse(data, path) {
             if (typeof data === 'object' && !Array.isArray(data)) {
               Object.entries(data).forEach(([name, animData]) => {
@@ -840,7 +840,7 @@
           }
         }
       });
-      
+
       // Model Export Action
       modelExportAction = new Action('export_strata_model', {
         name: 'Export Strata Model',
@@ -851,7 +851,7 @@
         async click() {
 
           const rootBones = Outliner.root.filter(element => element instanceof Group);
-    
+
           if (rootBones.length > 1) {
             Blockbench.showMessageBox({
               title: 'Export Error',
@@ -872,11 +872,11 @@
 
           const modelId = await promptForModelId('strata', Project.name || 'model');
           if (!modelId) return;
-          
+
           const modelData = codec.compile({ modelId });
 
           const formattedModel = collapseVectors(JSON.stringify(modelData, null, 2));
-          
+
           Blockbench.export({
             type: 'Strata Model',
             extensions: ['strmodel'],
@@ -895,12 +895,12 @@
           // We use a copy of the textures array to determine priority
           // Blockbench texture list order: first in list = highest priority
           const allProjectTextures = Texture.all;
-          
+
           Object.keys(modelData.textures).forEach((texName) => {
             // Find the actual Blockbench texture object
             const bbTex = allProjectTextures.find(t => t.name === texName);
-        
-            // Calculate Render Priority: 
+
+            // Calculate Render Priority:
             // We want the top-most texture in the list to have the highest priority number
             // so it renders last (on top of others).
             const listIndex = allProjectTextures.indexOf(bbTex);
@@ -913,22 +913,22 @@
               width: bbTex ? bbTex.width : 16,
               height: bbTex ? bbTex.height : 16,
               // Use Blockbench's internal 'transparent' flag
-              translucent: true, 
+              translucent: true,
               render_priority: priority
             };
           });
-          
+
           // Save the .strskin file
           const skinPath = path.replace('.strmodel', '.strskin');
           const fs = require('fs');
           fs.writeFileSync(skinPath, collapseVectors(JSON.stringify(skinData, null, 2)));
-          
+
           Blockbench.showQuickMessage(`Exported model and skin files`);
         }
           });
         }
       });
-      
+
       // Model Import Action
       modelImportAction = new Action('import_strata_model', {
         name: 'Import Strata Model',
@@ -967,7 +967,7 @@
           });
         }
       });
-      
+
       // Animation Export Action
       animExportAction = new Action('export_strata_animations', {
         name: 'Export Strata Animations',
@@ -978,13 +978,13 @@
         async click() {
           const modelId = await promptForModelId('strata', Project.name || 'model');
           if (!modelId) return;
-          
+
           const animations = {};
-          
+
           Animation.all.forEach(anim => {
             animations[anim.name] = codec.compile_animation(anim, modelId);
           });
-          
+
           Blockbench.export({
             type: 'Strata Animation',
             extensions: ['stranim'],
@@ -993,7 +993,7 @@
           });
         }
       });
-      
+
       // Animation Import Action
       animImportAction = new Action('import_strata_animations', {
         name: 'Import Strata Animations',
@@ -1010,12 +1010,12 @@
             files.forEach(file => {
               try {
                 const animData = autoParseJSON(file.content);
-                
+
                 if (animData) {
                   Object.entries(animData).forEach(([name, data]) => {
                     codec.parse_animation(data, file.path, name);
                   });
-                  
+
                   Blockbench.showQuickMessage('Animations imported successfully');
                 }
               } catch (error) {
@@ -1028,15 +1028,15 @@
           });
         }
       });
-      
+
       MenuBar.addAction(modelExportAction, 'file.export');
       MenuBar.addAction(modelImportAction, 'file.import');
       MenuBar.addAction(animExportAction, 'file.export');
       MenuBar.addAction(animImportAction, 'file.import');
-      
+
       console.log('Strata Engine Format plugin loaded successfully');
     },
-    
+
     onunload() {
       codec.delete();
       format.delete();
@@ -1046,5 +1046,5 @@
       animImportAction.delete();
     }
   });
-  
+
 })();

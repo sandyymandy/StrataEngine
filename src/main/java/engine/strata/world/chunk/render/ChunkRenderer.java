@@ -27,6 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class ChunkRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger("ChunkRender");
+    private static final Matrix4f IDENTITY = new Matrix4f().identity();
 
     private final ChunkManager chunkManager;
     private final ChunkMeshBuilder chunkMeshBuilder;
@@ -37,7 +38,8 @@ public class ChunkRenderer {
     private final RenderLayer chunkLayer;
     private final DynamicTextureArray textureArray;
 
-    private int renderDistance = 64;
+    // Default is intentionally conservative; high values can be extremely expensive.
+    private int renderDistance = 16;
 
     // Stats
     private int chunksRendered = 0;
@@ -147,7 +149,7 @@ public class ChunkRenderer {
         // Convert chunk distance to blocks once; all culling uses block-space.
         float blockDistance = renderDistance * SubChunk.SIZE;
 
-        chunkLayer.shaderStack().setUniform("u_Model", new Matrix4f().identity());
+        chunkLayer.shaderStack().setUniform("u_Model", IDENTITY);
 
         List<Region> visibleRegions = chunkManager.getVisibleRegions(
                 camX, camY, camZ, blockDistance);

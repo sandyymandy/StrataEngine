@@ -7,6 +7,7 @@ import engine.strata.client.StrataClient;
 import engine.strata.client.frontend.window.Window;
 import engine.strata.client.frontend.render.Camera;
 import engine.strata.client.frontend.render.renderer.MasterRenderer;
+import engine.strata.client.frontend.ui.UiManager;
 import engine.strata.core.entrypoint.EntrypointManager;
 import engine.strata.util.debug.DisplayDebugInfo;
 import engine.strata.entity.Entity;
@@ -38,6 +39,7 @@ public class ClientFrontEnd {
     private final Window window;
     private final Camera camera;
     private final DisplayDebugInfo debugInfo = new DisplayDebugInfo(false, false, false, false, false, false);
+    private final UiManager ui;
 
     private FramerateCap framerateCap = FramerateCap.UNCAPPED;
     private long lastFrameTime = System.nanoTime();
@@ -47,6 +49,7 @@ public class ClientFrontEnd {
         this.window = window;
         this.camera = new Camera();
         this.masterRenderer = new MasterRenderer(client, this.camera, this.debugInfo);
+        this.ui = new UiManager(client);
         RenderSystem.initRenderThread();
         initHelios();
         init();
@@ -57,6 +60,8 @@ public class ClientFrontEnd {
     public void render(Collection<Entity> entities, float partialTicks, float deltaTime) {
         limitFramerate();
         this.masterRenderer.render(entities, partialTicks, deltaTime);
+        // UI overlay renders last in screen-space.
+        this.ui.updateAndRender(this.masterRenderer.getGuiRenderer(), deltaTime);
     }
 
     private void limitFramerate() {
@@ -136,7 +141,7 @@ public class ClientFrontEnd {
     }
 
     private void init() {
-        setFramerateCap(FramerateCap.FPS_180);
+        setFramerateCap(FramerateCap.VSYNC);
         LOGGER.info("Client frontend initialized with universal entity rendering");
     }
 

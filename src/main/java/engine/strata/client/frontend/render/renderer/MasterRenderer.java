@@ -326,6 +326,7 @@ public class MasterRenderer {
     // ── Getters ────────────────────────────────────────────────────────────────
 
     public ModelRenderer getModelRenderer()                         { return modelRenderer; }
+    public GuiRenderer getGuiRenderer()                             { return guiRenderer; }
     public EntityRenderer getEntityRenderer()                       { return entityRenderer; }
     public Camera getCamera()                                       { return camera; }
     public ChunkRenderer getChunkRenderer()                        { return chunkRenderer; }

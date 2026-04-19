@@ -15,7 +15,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ChunkManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("ChunkManager");
 
-    private int renderDistance = 32;
+    // Default view distance. Large values balloon memory usage (chunks + meshes).
+    private int renderDistance = 16;
 
     private final ConcurrentHashMap<Long, Region> regions    = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, Chunk>  chunkCache = new ConcurrentHashMap<>();

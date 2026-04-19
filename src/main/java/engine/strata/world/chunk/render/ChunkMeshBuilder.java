@@ -54,7 +54,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ChunkMeshBuilder implements Runnable {
     private static final Logger LOGGER = LoggerFactory.getLogger("ChunkMeshBuilder");
 
-    private static final int INITIAL_FLOAT_CAPACITY = (4 * 1024 * 1024) / Float.BYTES;
+    // Reused staging buffer size for mesh building.
+    // IMPORTANT: this is NOT per-chunk; it is a reusable buffer owned by the meshing thread.
+    private static final int INITIAL_FLOAT_CAPACITY = 256 * 1024;
+    private static final int MAX_PENDING_UPLOADS = 32;
 
     // 7 floats per vertex: pos(3) + uv(2) + layer(1) + brightness(1)
     static final int FLOATS_PER_VERTEX = 7;
@@ -73,6 +76,8 @@ public class ChunkMeshBuilder implements Runnable {
 
     private int  chunksMesshed   = 0;
     private long totalMeshTimeNs = 0;
+
+    private final FloatList scratchVerts = new FloatList(INITIAL_FLOAT_CAPACITY);
 
     public ChunkMeshBuilder(ChunkManager chunkManager, DynamicTextureArray textureArray) {
         this(chunkManager, textureArray, new BlockModelLoader());
@@ -107,6 +112,9 @@ public class ChunkMeshBuilder implements Runnable {
             try {
                 if (paused.get()) { Thread.sleep(100); continue; }
 
+                // Prevent unbounded off-heap growth from queued DirectBuffers.
+                if (uploadQueue.size() >= MAX_PENDING_UPLOADS) { Thread.sleep(10); continue; }
+
                 ChunkManager.ChunkPos pos = pollQueue();
                 if (pos == null) { Thread.sleep(50); continue; }
 
@@ -137,10 +145,10 @@ public class ChunkMeshBuilder implements Runnable {
         Chunk chunk = chunkManager.getChunk(chunkX, chunkZ);
         if (chunk == null || !chunk.isGenerated()) return;
 
-        FloatList verts = new FloatList(INITIAL_FLOAT_CAPACITY);
-        buildChunkMesh(chunk, verts);
+        scratchVerts.clear();
+        buildChunkMesh(chunk, scratchVerts);
 
-        FloatBuffer data        = verts.toFlippedBuffer();
+        FloatBuffer data        = scratchVerts.toFlippedBuffer();
         int         vertexCount = data.limit() / FLOATS_PER_VERTEX;
 
         uploadQueue.offer(new MeshUploadTask(chunkX, chunkZ, data, vertexCount));
@@ -156,17 +164,27 @@ public class ChunkMeshBuilder implements Runnable {
     }
 
     private void buildChunkMesh(Chunk chunk, FloatList verts) {
-        int[] yRange = chunk.getYRange();
-        if (yRange == null) return;
+        // Iterate only subchunks that actually exist
+        for (Integer subChunkY : chunk.getSubChunkLevels()) {
+            SubChunk subChunk = chunk.getSubChunk(subChunkY);
+            if (subChunk == null || subChunk.isEmpty()) continue;
 
-        for (int y = yRange[0]; y <= yRange[1]; y++) {
-            for (int z = 0; z < SubChunk.SIZE; z++) {
-                for (int x = 0; x < SubChunk.SIZE; x++) {
-                    short blockId = chunk.getBlock(x, y, z);
-                    if (blockId == Blocks.AIR.getNumericId()) continue;
+            // Fast-skip uniform air subchunks.
+            if (subChunk.isUniform() && subChunk.getUniformBlockId() == Blocks.AIR.getNumericId()) {
+                continue;
+            }
 
-                    Block block = Blocks.getByNumericId(blockId);
-                    buildBlockMesh(chunk, x, y, z, block, verts);
+            int baseY = subChunkY * SubChunk.SIZE;
+            for (int localY = 0; localY < SubChunk.SIZE; localY++) {
+                int y = baseY + localY;
+                for (int z = 0; z < SubChunk.SIZE; z++) {
+                    for (int x = 0; x < SubChunk.SIZE; x++) {
+                        short blockId = subChunk.getBlock(x, localY, z);
+                        if (blockId == Blocks.AIR.getNumericId()) continue;
+
+                        Block block = Blocks.getByNumericId(blockId);
+                        buildBlockMesh(chunk, x, y, z, block, verts);
+                    }
                 }
             }
         }
@@ -438,6 +456,8 @@ public class ChunkMeshBuilder implements Runnable {
         private int     size = 0;
 
         FloatList(int initialCapacity) { arr = new float[initialCapacity]; }
+
+        void clear() { size = 0; }
 
         void add(float f) {
             if (size == arr.length) {

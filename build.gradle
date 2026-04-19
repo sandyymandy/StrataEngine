@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'application'
 }
 
 group = 'engine.strata'
@@ -16,7 +17,17 @@ def slf4jVersion = "2.0.16"
 def log4jVersion = "2.24.1"
 def gsonVersion = "2.10.1"
 def joltJniVersion = "3.6.0"
-def lwjglNatives = "natives-windows"
+
+def os = System.getProperty("os.name").toLowerCase(Locale.ROOT)
+def arch = System.getProperty("os.arch").toLowerCase(Locale.ROOT)
+def lwjglNatives =
+        os.contains("win") ? "natives-windows" :
+        os.contains("mac") ? (arch.contains("aarch64") || arch.contains("arm64") ? "natives-macos-arm64" : "natives-macos") :
+        os.contains("linux") ? "natives-linux" :
+        null
+if (lwjglNatives == null) {
+    throw new GradleException("Unsupported OS for LWJGL natives: os.name=${System.getProperty("os.name")}, os.arch=${System.getProperty("os.arch")}")
+}
 
 dependencies {
     // LWJGL
@@ -52,9 +63,37 @@ dependencies {
     implementation("io.github.electrostat-lab:snaploader:1.1.1-stable")
     runtimeOnly("com.github.oshi:oshi-core:6.9.2")
 
+    testImplementation platform("org.junit:junit-bom:5.13.4")
+    testImplementation "org.junit.jupiter:junit-jupiter"
 }
 
-// This forces the IDE to copy the natives correctly
+application {
+    mainClass = "engine.strata.StrataLauncher"
+}
+
+def strataJvmArgsProp = (project.findProperty("strataJvmArgs") ?: "").toString().trim()
+def strataJvmArgsList = strataJvmArgsProp.isEmpty() ? [] : strataJvmArgsProp.split("\\s+").toList()
+tasks.withType(JavaExec).configureEach {
+    if (!strataJvmArgsList.isEmpty()) {
+        jvmArgs(strataJvmArgsList)
+    }
+}
+
+tasks.register("runServer", JavaExec) {
+    group = "application"
+    description = "Runs StrataEngine in server mode"
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = application.mainClass.get()
+    args "--server"
+}
+
+tasks.register("runTextureProbe", JavaExec) {
+    group = "application"
+    description = "Decodes a texture via STB and prints sample pixels"
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = "engine.strata.debug.TextureProbe"
+}
+
 test {
     useJUnitPlatform()
 }

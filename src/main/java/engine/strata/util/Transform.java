@@ -3,13 +3,16 @@ package engine.strata.util;
 import org.joml.Quaternionf;
 
 public class Transform {
+    // Define the IDENTITY constant here
+    public static final Transform IDENTITY = new Transform();
+
     protected final Vec3d position;
     protected final Quaternionf rotation;
     protected final Vec3f scale;
 
     public Transform() {
-        this.position = new Vec3d();
-        this.rotation = new Quaternionf(); // Identity quaternion
+        this.position = new Vec3d(0, 0, 0);
+        this.rotation = new Quaternionf(); // Identity quaternion (0,0,0,1)
         this.scale = new Vec3f(1, 1, 1);
     }
 
@@ -20,12 +23,18 @@ public class Transform {
     }
 
     public Transform(Vec3d position) {
-        this.position = position;
-        this.rotation = new Quaternionf(); // Identity quaternion
-        this.scale = new Vec3f(1, 1, 1);
+        this(position, new Quaternionf(), new Vec3f(1, 1, 1));
     }
 
-    public Vec3d  getPosition() { return position; }
+    /**
+     * Helper to create a transform with just a translation offset.
+     * Useful for avoiding z-fighting or bone offsets.
+     */
+    public static Transform offset(double x, double y, double z) {
+        return new Transform(new Vec3d(x, y, z));
+    }
+
+    public Vec3d getPosition() { return position; }
     public Quaternionf getRotation() { return rotation; }
     public Vec3f getScale() { return scale; }
 }

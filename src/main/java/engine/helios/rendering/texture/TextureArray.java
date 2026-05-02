@@ -34,8 +34,6 @@ public class TextureArray {
      * @return A new TextureArray instance
      */
     public static TextureArray create(ByteBuffer data, int width, int height, int layerCount) {
-        RenderSystem.assertOnRenderThread();
-
         int id = glGenTextures();
         glBindTexture(GL_TEXTURE_2D_ARRAY, id);
 
@@ -80,8 +78,6 @@ public class TextureArray {
      * @return A new TextureArray instance
      */
     public static TextureArray createEmpty(int width, int height, int layerCount) {
-        RenderSystem.assertOnRenderThread();
-
         int id = glGenTextures();
         glBindTexture(GL_TEXTURE_2D_ARRAY, id);
 
@@ -117,8 +113,6 @@ public class TextureArray {
      * @param data RGBA data for the layer
      */
     public void updateLayer(int layer, ByteBuffer data) {
-        RenderSystem.assertOnRenderThread();
-
         if (layer < 0 || layer >= layers) {
             throw new IllegalArgumentException("Layer index out of bounds: " + layer);
         }
@@ -195,8 +189,6 @@ public class TextureArray {
         }
 
         public TextureArray build() {
-            RenderSystem.assertOnRenderThread();
-
             if (width <= 0 || height <= 0 || layerCount <= 0) {
                 throw new IllegalStateException("Width, height, and layer count must be positive");
             }

@@ -112,7 +112,7 @@ public class StrataSkinLoader {
                         path, width, height, translucent, renderPriority
                 ));
 
-                LOGGER.debug("  Loaded texture slot '{}': {} ({}x{}, translucent={}, priority={})",
+                LOGGER.debug("Loaded texture slot '{}': {} ({}x{}, translucent={}, priority={})",
                         slot, path, width, height, translucent, renderPriority);
             }
 

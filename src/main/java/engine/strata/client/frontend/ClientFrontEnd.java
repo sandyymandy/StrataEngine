@@ -4,10 +4,17 @@ import engine.helios.rendering.RenderSystem;
 import engine.helios.rendering.shader.ShaderManager;
 import engine.strata.api.ClientFrontEndInitializer;
 import engine.strata.client.StrataClient;
+import engine.strata.client.frontend.render.renderer.entity.EntityRenderDispatcher;
+import engine.strata.client.frontend.render.renderer.entity.EntityRendererRegistry;
+import engine.strata.client.frontend.render.renderer.entity.entities.BiaEntityRenderer;
+import engine.strata.client.frontend.render.renderer.entity.entities.CharacterEntityRenderer;
+import engine.strata.client.frontend.render.renderer.entity.entities.MikaEntityRenderer;
+import engine.strata.client.frontend.render.renderer.entity.entities.PlayerEntityRenderer;
 import engine.strata.client.frontend.window.Window;
 import engine.strata.client.frontend.render.Camera;
 import engine.strata.client.frontend.render.renderer.MasterRenderer;
 import engine.strata.core.entrypoint.EntrypointManager;
+import engine.strata.registry.registries.EntityRegistry;
 import engine.strata.util.debug.DisplayDebugInfo;
 import engine.strata.entity.Entity;
 import engine.strata.util.Identifier;
@@ -47,7 +54,6 @@ public class ClientFrontEnd {
         this.window = window;
         this.camera = new Camera();
         this.masterRenderer = new MasterRenderer(client, this.camera, this.debugInfo);
-        RenderSystem.initRenderThread();
         initHelios();
         init();
         EntrypointManager.invoke("client_front_end", ClientFrontEndInitializer.class,
@@ -137,6 +143,11 @@ public class ClientFrontEnd {
 
     private void init() {
         setFramerateCap(FramerateCap.FPS_180);
+        EntityRendererRegistry.register(EntityRegistry.MIKA, MikaEntityRenderer::new);
+        EntityRendererRegistry.register(EntityRegistry.PLAYER, PlayerEntityRenderer::new);
+        EntityRendererRegistry.register(EntityRegistry.CHARACTER, CharacterEntityRenderer::new);
+        EntityRendererRegistry.register(EntityRegistry.BIA, BiaEntityRenderer::new);
+
         LOGGER.info("Client frontend initialized with universal entity rendering");
     }
 

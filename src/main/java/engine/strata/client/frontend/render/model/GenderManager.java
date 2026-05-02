@@ -52,7 +52,7 @@ public final class GenderManager {
 
     /** Matches female-specific mesh bones from core.strmodel. */
     private static final Pattern FEMALE_BONE_PATTERN = Pattern.compile(
-            "meshFemale.*|breasts|vagina|cumflation.*",
+            "meshFemale.*|breasts|vagina|cumflation.*|ass",
             Pattern.CASE_INSENSITIVE
     );
 

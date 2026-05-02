@@ -24,8 +24,4 @@ public class CharacterEntity extends Entity {
         else setGender(Gender.MALE);
     }
 
-    @Override
-    public Identifier getModelId() {
-        return Identifier.ofEngine("core");
-    }
 }

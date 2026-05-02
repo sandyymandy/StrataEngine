@@ -8,8 +8,6 @@ import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL30.*;
 
 public class RenderSystem {
-    @Nullable
-    private static Thread renderThread;
 
     // State tracking
     private static int currentTexture = -1;
@@ -18,24 +16,6 @@ public class RenderSystem {
     private static boolean blending = false;
     private static boolean culling = false;
 
-    // ── Thread management ─────────────────────────────────────────────────────
-
-    public static void initRenderThread() {
-        if (renderThread != null) {
-            throw new IllegalStateException("Could not initialize render thread");
-        }
-        renderThread = Thread.currentThread();
-    }
-
-    public static boolean isOnRenderThread() {
-        return Thread.currentThread() == renderThread;
-    }
-
-    public static void assertOnRenderThread() {
-        if (!isOnRenderThread()) {
-            throw new IllegalStateException("RenderSystem called from wrong thread");
-        }
-    }
 
     // ── Texture binding ───────────────────────────────────────────────────────
 

@@ -28,7 +28,6 @@ public class MeshRenderer {
      * Must be called on the render thread.
      */
     public void upload(FloatBuffer data, int vertexCount, VertexFormat format) {
-        RenderSystem.assertOnRenderThread();
 
         if (vao != 0 || vbo != 0) {
             deleteGLObjects();
@@ -134,7 +133,6 @@ public class MeshRenderer {
      * <p>Must be called on the render thread with the correct shader active.
      */
     public void render() {
-        RenderSystem.assertOnRenderThread();
 
         if (!uploaded || vertexCount == 0) return;
 

@@ -802,56 +802,50 @@
         });
       }
 
-      // Build bone hierarchy
+      // Step 1: Create all groups, init them, and add elements immediately
       const boneGroups = [];
 
       for (let i = 0; i < bones.length; i++) {
         const bone = bones[i];
+        // Create and init immediately (like JSON format)
         const group = new Group({
           name: bone.name,
-          origin: bone.pivot,
-          rotation: bone.rotation
-        });
+          origin: bone.pivot
+        }).init();
 
+        if (bone.rotation && (bone.rotation[0] !== 0 || bone.rotation[1] !== 0 || bone.rotation[2] !== 0)) {
+          group.rotation = bone.rotation;
+        }
+
+        // Set visibility
         if (bone.hidden) {
           group.visibility = false;
         }
 
         boneGroups.push(group);
-      }
 
-      // Set parent relationships
-      for (let i = 0; i < bones.length; i++) {
-        const bone = bones[i];
-        if (bone.parentIndex >= 0 && bone.parentIndex < boneGroups.length) {
-          const parent = boneGroups[bone.parentIndex];
-          if (parent) {
-            boneGroups[i].addTo(parent);
-          } else {
-            console.warn(`Bone ${i} (${bone.name}) has invalid parent index ${bone.parentIndex}`);
-            boneGroups[i].addTo();
-          }
-        } else {
-          boneGroups[i].addTo();
-        }
-      }
-
-      // Add elements to bones
-      for (let i = 0; i < boneElements.length; i++) {
+        // Add elements to this bone immediately (like JSON format)
         const elements = boneElements[i];
-        const parent = boneGroups[i];
-
         for (const elem of elements) {
           if (elem.type === 0) {
             // Mesh
             const meshData = meshes[elem.index];
-            createBlockbenchElement(meshData, parent, meshData.name, textureMap);
+            createBlockbenchElement(meshData, group, meshData.name, textureMap);
           } else {
             // Cuboid
             const cuboidData = cuboids[elem.index];
-            createBlockbenchElement(cuboidData, parent, cuboidData.name, textureMap);
+            createBlockbenchElement(cuboidData, group, cuboidData.name, textureMap);
           }
         }
+      }
+
+      // Step 2: Set parent relationships in second pass (like JSON format)
+      for (let i = 0; i < bones.length; i++) {
+        const bone = bones[i];
+        if (bone.parentIndex >= 0 && bone.parentIndex < boneGroups.length) {
+          boneGroups[i].addTo(boneGroups[bone.parentIndex]);
+        }
+        // If no parent, group stays at root (already added via init)
       }
 
       Canvas.updateAll();

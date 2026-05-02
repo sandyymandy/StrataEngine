@@ -10,6 +10,7 @@ import engine.strata.client.frontend.render.renderer.entity.entities.BiaEntityRe
 import engine.strata.client.frontend.render.renderer.entity.entities.CharacterEntityRenderer;
 import engine.strata.client.frontend.render.renderer.entity.entities.MikaEntityRenderer;
 import engine.strata.client.frontend.render.renderer.entity.entities.PlayerEntityRenderer;
+import engine.strata.client.frontend.ui.UiManager;
 import engine.strata.client.frontend.window.Window;
 import engine.strata.client.frontend.render.Camera;
 import engine.strata.client.frontend.render.renderer.MasterRenderer;
@@ -45,6 +46,7 @@ public class ClientFrontEnd {
     private final Window window;
     private final Camera camera;
     private final DisplayDebugInfo debugInfo = new DisplayDebugInfo(false, false, false, false, false, false);
+    private final UiManager ui;
 
     private FramerateCap framerateCap = FramerateCap.UNCAPPED;
     private long lastFrameTime = System.nanoTime();
@@ -54,6 +56,7 @@ public class ClientFrontEnd {
         this.window = window;
         this.camera = new Camera();
         this.masterRenderer = new MasterRenderer(client, this.camera, this.debugInfo);
+        this.ui = new UiManager(client);
         initHelios();
         init();
         EntrypointManager.invoke("client_front_end", ClientFrontEndInitializer.class,
@@ -63,6 +66,8 @@ public class ClientFrontEnd {
     public void render(Collection<Entity> entities, float partialTicks, float deltaTime) {
         limitFramerate();
         this.masterRenderer.render(entities, partialTicks, deltaTime);
+        // UI overlay renders last in screen-space.
+        this.ui.updateAndRender(this.masterRenderer.getGuiRenderer(), deltaTime);
     }
 
     private void limitFramerate() {
@@ -142,7 +147,7 @@ public class ClientFrontEnd {
     }
 
     private void init() {
-        setFramerateCap(FramerateCap.FPS_180);
+        setFramerateCap(FramerateCap.VSYNC);
         EntityRendererRegistry.register(EntityRegistry.MIKA, MikaEntityRenderer::new);
         EntityRendererRegistry.register(EntityRegistry.PLAYER, PlayerEntityRenderer::new);
         EntityRendererRegistry.register(EntityRegistry.CHARACTER, CharacterEntityRenderer::new);

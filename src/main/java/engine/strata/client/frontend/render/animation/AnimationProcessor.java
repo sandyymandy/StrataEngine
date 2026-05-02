@@ -3,7 +3,6 @@ package engine.strata.client.frontend.render.animation;
 import engine.strata.client.frontend.render.model.BoneState;
 import engine.strata.client.frontend.render.model.StrataBone;
 import engine.strata.client.frontend.render.model.StrataModel;
-import engine.strata.client.frontend.render.renderer.ModelRenderer;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,7 +14,6 @@ import java.util.Map;
  * Per-entity animation processor that manages bone states and applies animations.
  *
  * <p>Each entity owns one AnimationProcessor which maintains a {@link BoneState}
- * for every bone. Animations modify bone states each frame and {@link ModelRenderer}
  * reads them during rendering.
  *
  * <p>All rotation values are Euler angles in radians (x=pitch, y=yaw, z=roll).

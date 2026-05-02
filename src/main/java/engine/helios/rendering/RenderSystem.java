@@ -30,6 +30,8 @@ public class RenderSystem {
      * Binds a regular 2D texture by ID.
      */
     public static void bindTexture(int textureId) {
+        // Always bind textures on unit 0 (matches u_Texture = 0 everywhere).
+        glActiveTexture(GL_TEXTURE0);
         if (currentTexture != textureId) {
             glBindTexture(GL_TEXTURE_2D, textureId);
             currentTexture = textureId;
@@ -48,6 +50,8 @@ public class RenderSystem {
      * Binds a texture array by ID.
      */
     public static void bindTextureArray(int textureArrayId) {
+        // Always bind textures on unit 0 (matches u_Texture = 0 everywhere).
+        glActiveTexture(GL_TEXTURE0);
         if (currentTextureArray != textureArrayId) {
             glBindTexture(GL_TEXTURE_2D_ARRAY, textureArrayId);
             currentTextureArray = textureArrayId;

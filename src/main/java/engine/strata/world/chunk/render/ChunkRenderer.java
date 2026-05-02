@@ -27,6 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class ChunkRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger("ChunkRender");
+    private static final Matrix4f IDENTITY = new Matrix4f().identity();
 
     private final ChunkManager chunkManager;
     private final ChunkMeshBuilder chunkMeshBuilder;
@@ -37,7 +38,7 @@ public class ChunkRenderer {
     private final RenderLayer chunkLayer;
     private final DynamicTextureArray textureArray;
 
-    private int renderDistance = 64;
+    private int renderDistance = 16;
 
     // Stats
     private int chunksRendered = 0;
@@ -147,7 +148,7 @@ public class ChunkRenderer {
         // Convert chunk distance to blocks once; all culling uses block-space.
         float blockDistance = renderDistance * SubChunk.SIZE;
 
-        chunkLayer.shaderStack().setUniform("u_Model", new Matrix4f().identity());
+        chunkLayer.shaderStack().setUniform("u_Model", IDENTITY);
 
         List<Region> visibleRegions = chunkManager.getVisibleRegions(
                 camX, camY, camZ, blockDistance);
@@ -213,13 +214,28 @@ public class ChunkRenderer {
 
     // ── Stats / accessors ─────────────────────────────────────────────────────
 
-    public int getMeshCount() { return meshes.size(); }
-    public int getChunksRendered() { return chunksRendered; }
-    public int getChunksCulled() { return chunksCulled; }
-    public int getTrianglesRendered() { return trianglesRendered; }
+    public int getMeshCount() {
+        return meshes.size();
+    }
 
-    /** Returns render distance in chunks. */
-    public int getRenderDistance() { return renderDistance; }
+    public int getChunksRendered() {
+        return chunksRendered;
+    }
+
+    public int getChunksCulled() {
+        return chunksCulled;
+    }
+
+    public int getTrianglesRendered() {
+        return trianglesRendered;
+    }
+
+    /**
+     * Returns render distance in chunks.
+     */
+    public int getRenderDistance() {
+        return renderDistance;
+    }
 
     public void setRenderDistance(int chunks) {
         this.renderDistance = Math.max(1, Math.min(200, chunks));

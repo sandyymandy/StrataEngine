@@ -362,6 +362,10 @@ public class MasterRenderer {
         return camera;
     }
 
+    public GuiRenderer getGuiRenderer() {
+        return guiRenderer;
+    }
+
     public EntityRenderDispatcher getEntityDispatcher() {
         return entityDispatcher;
     }

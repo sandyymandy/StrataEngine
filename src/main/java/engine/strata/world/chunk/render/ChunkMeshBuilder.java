@@ -54,25 +54,30 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ChunkMeshBuilder implements Runnable {
     private static final Logger LOGGER = LoggerFactory.getLogger("ChunkMeshBuilder");
 
-    private static final int INITIAL_FLOAT_CAPACITY = (4 * 1024 * 1024) / Float.BYTES;
+    // Reused staging buffer size for mesh building.
+    // IMPORTANT: this is NOT per-chunk; it is a reusable buffer owned by the meshing thread.
+    private static final int INITIAL_FLOAT_CAPACITY = 256 * 1024;
+    private static final int MAX_PENDING_UPLOADS = 32;
 
     // 7 floats per vertex: pos(3) + uv(2) + layer(1) + brightness(1)
     static final int FLOATS_PER_VERTEX = 7;
 
-    private final ChunkManager      chunkManager;
+    private final ChunkManager chunkManager;
     private final DynamicTextureArray textureArray;
-    private final BlockModelLoader  modelLoader;
+    private final BlockModelLoader modelLoader;
 
     private final Set<ChunkManager.ChunkPos> meshingQueue = ConcurrentHashMap.newKeySet();
-    private final Queue<MeshUploadTask>      uploadQueue  = new ConcurrentLinkedQueue<>();
+    private final Queue<MeshUploadTask> uploadQueue = new ConcurrentLinkedQueue<>();
 
     private final AtomicBoolean running = new AtomicBoolean(false);
-    private final AtomicBoolean paused  = new AtomicBoolean(false);
+    private final AtomicBoolean paused = new AtomicBoolean(false);
 
     private Thread thread;
 
-    private int  chunksMesshed   = 0;
+    private int chunksMesshed = 0;
     private long totalMeshTimeNs = 0;
+
+    private final FloatList scratchVerts = new FloatList(INITIAL_FLOAT_CAPACITY);
 
     public ChunkMeshBuilder(ChunkManager chunkManager, DynamicTextureArray textureArray) {
         this(chunkManager, textureArray, new BlockModelLoader());
@@ -82,13 +87,15 @@ public class ChunkMeshBuilder implements Runnable {
                             BlockModelLoader modelLoader) {
         this.chunkManager = chunkManager;
         this.textureArray = textureArray;
-        this.modelLoader  = modelLoader;
+        this.modelLoader = modelLoader;
         LOGGER.info("ChunkMesher initialized (BlockModel + GL_TEXTURE_2D_ARRAY mode)");
     }
 
     // ── Thread lifecycle ──────────────────────────────────────────────────────
 
-    /** Starts the meshing thread. Call once after construction. */
+    /**
+     * Starts the meshing thread. Call once after construction.
+     */
     public void start() {
         if (running.compareAndSet(false, true)) {
             thread = new Thread(this, "ChunkMesh");
@@ -105,10 +112,22 @@ public class ChunkMeshBuilder implements Runnable {
 
         while (running.get()) {
             try {
-                if (paused.get()) { Thread.sleep(100); continue; }
+                if (paused.get()) {
+                    Thread.sleep(100);
+                    continue;
+                }
+
+                // Prevent unbounded off-heap growth from queued DirectBuffers.
+                if (uploadQueue.size() >= MAX_PENDING_UPLOADS) {
+                    Thread.sleep(10);
+                    continue;
+                }
 
                 ChunkManager.ChunkPos pos = pollQueue();
-                if (pos == null) { Thread.sleep(50); continue; }
+                if (pos == null) {
+                    Thread.sleep(50);
+                    continue;
+                }
 
                 meshChunk(pos.x, pos.z);
 
@@ -133,15 +152,15 @@ public class ChunkMeshBuilder implements Runnable {
     // ── Mesh building ────────────────────────────────────────────────────────
 
     private void meshChunk(int chunkX, int chunkZ) {
-        long  t0    = System.nanoTime();
+        long t0 = System.nanoTime();
         Chunk chunk = chunkManager.getChunk(chunkX, chunkZ);
         if (chunk == null || !chunk.isGenerated()) return;
 
-        FloatList verts = new FloatList(INITIAL_FLOAT_CAPACITY);
-        buildChunkMesh(chunk, verts);
+        scratchVerts.clear();
+        buildChunkMesh(chunk, scratchVerts);
 
-        FloatBuffer data        = verts.toFlippedBuffer();
-        int         vertexCount = data.limit() / FLOATS_PER_VERTEX;
+        FloatBuffer data = scratchVerts.toFlippedBuffer();
+        int vertexCount = data.limit() / FLOATS_PER_VERTEX;
 
         uploadQueue.offer(new MeshUploadTask(chunkX, chunkZ, data, vertexCount));
         chunk.setNeedsRemesh(false);
@@ -156,17 +175,27 @@ public class ChunkMeshBuilder implements Runnable {
     }
 
     private void buildChunkMesh(Chunk chunk, FloatList verts) {
-        int[] yRange = chunk.getYRange();
-        if (yRange == null) return;
+        // Iterate only subchunks that actually exist
+        for (Integer subChunkY : chunk.getSubChunkLevels()) {
+            SubChunk subChunk = chunk.getSubChunk(subChunkY);
+            if (subChunk == null || subChunk.isEmpty()) continue;
 
-        for (int y = yRange[0]; y <= yRange[1]; y++) {
-            for (int z = 0; z < SubChunk.SIZE; z++) {
-                for (int x = 0; x < SubChunk.SIZE; x++) {
-                    short blockId = chunk.getBlock(x, y, z);
-                    if (blockId == Blocks.AIR.getNumericId()) continue;
+            // Fast-skip uniform air subchunks.
+            if (subChunk.isUniform() && subChunk.getUniformBlockId() == Blocks.AIR.getNumericId()) {
+                continue;
+            }
 
-                    Block block = Blocks.getByNumericId(blockId);
-                    buildBlockMesh(chunk, x, y, z, block, verts);
+            int baseY = subChunkY * SubChunk.SIZE;
+            for (int localY = 0; localY < SubChunk.SIZE; localY++) {
+                int y = baseY + localY;
+                for (int z = 0; z < SubChunk.SIZE; z++) {
+                    for (int x = 0; x < SubChunk.SIZE; x++) {
+                        short blockId = subChunk.getBlock(x, localY, z);
+                        if (blockId == Blocks.AIR.getNumericId()) continue;
+
+                        Block block = Blocks.getByNumericId(blockId);
+                        buildBlockMesh(chunk, x, y, z, block, verts);
+                    }
                 }
             }
         }
@@ -176,7 +205,7 @@ public class ChunkMeshBuilder implements Runnable {
 
     /**
      * Emits geometry for one block at local chunk coordinates (x, y, z).
-     *
+     * <p>
      * The block's model is resolved via {@link BlockModelLoader}. For each
      * element in the model, each face is tested for visibility using the
      * face's declared {@code cullface} direction.  Faces that pass the test
@@ -194,7 +223,7 @@ public class ChunkMeshBuilder implements Runnable {
 
         for (BlockModel.Element element : model.getElements()) {
             for (Map.Entry<BlockModel.Face, BlockModel.FaceData> entry : element.getFaces().entrySet()) {
-                BlockModel.Face     face     = entry.getKey();
+                BlockModel.Face face = entry.getKey();
                 BlockModel.FaceData faceData = entry.getValue();
 
                 // ── Cullface test ─────────────────────────────────────────
@@ -216,8 +245,8 @@ public class ChunkMeshBuilder implements Runnable {
                 int layer = textureArray.getLayer(texId);
 
                 // ── UV ────────────────────────────────────────────────────
-                float[] uv         = faceData.getUvNormalized(element, face);
-                float   brightness = getFaceBrightness(face);
+                float[] uv = faceData.getUvNormalized(element, face);
+                float brightness = getFaceBrightness(face);
 
                 // ── Emit quad ─────────────────────────────────────────────
                 buildFaceQuad(wx, y, wz, element, face, uv, layer, brightness, v);
@@ -241,10 +270,19 @@ public class ChunkMeshBuilder implements Runnable {
         Chunk neighbor;
         int lx = x, lz = z;
 
-        if      (x < 0)              { neighbor = chunk.getNeighbor(Chunk.ChunkDirection.WEST);  lx = SubChunk.SIZE - 1; }
-        else if (x >= SubChunk.SIZE) { neighbor = chunk.getNeighbor(Chunk.ChunkDirection.EAST);  lx = 0; }
-        else if (z < 0)              { neighbor = chunk.getNeighbor(Chunk.ChunkDirection.NORTH); lz = SubChunk.SIZE - 1; }
-        else                         { neighbor = chunk.getNeighbor(Chunk.ChunkDirection.SOUTH); lz = 0; }
+        if (x < 0) {
+            neighbor = chunk.getNeighbor(Chunk.ChunkDirection.WEST);
+            lx = SubChunk.SIZE - 1;
+        } else if (x >= SubChunk.SIZE) {
+            neighbor = chunk.getNeighbor(Chunk.ChunkDirection.EAST);
+            lx = 0;
+        } else if (z < 0) {
+            neighbor = chunk.getNeighbor(Chunk.ChunkDirection.NORTH);
+            lz = SubChunk.SIZE - 1;
+        } else {
+            neighbor = chunk.getNeighbor(Chunk.ChunkDirection.SOUTH);
+            lz = 0;
+        }
 
         if (neighbor == null) return true;
 
@@ -286,62 +324,62 @@ public class ChunkMeshBuilder implements Runnable {
         switch (face) {
             case UP:
                 // y = by+ty  |  x→u  |  z→v
-                vert(v, bx+tx, by+ty, bz+tz, u2, v2, layer, brightness);
-                vert(v, bx+tx, by+ty, bz+fz, u2, v1, layer, brightness);
-                vert(v, bx+fx, by+ty, bz+fz, u1, v1, layer, brightness);
-                vert(v, bx+tx, by+ty, bz+tz, u2, v2, layer, brightness);
-                vert(v, bx+fx, by+ty, bz+fz, u1, v1, layer, brightness);
-                vert(v, bx+fx, by+ty, bz+tz, u1, v2, layer, brightness);
+                vert(v, bx + tx, by + ty, bz + tz, u2, v2, layer, brightness);
+                vert(v, bx + tx, by + ty, bz + fz, u2, v1, layer, brightness);
+                vert(v, bx + fx, by + ty, bz + fz, u1, v1, layer, brightness);
+                vert(v, bx + tx, by + ty, bz + tz, u2, v2, layer, brightness);
+                vert(v, bx + fx, by + ty, bz + fz, u1, v1, layer, brightness);
+                vert(v, bx + fx, by + ty, bz + tz, u1, v2, layer, brightness);
                 break;
 
             case DOWN:
                 // y = by+fy  |  x→u  |  z→v
-                vert(v, bx+tx, by+fy, bz+fz, u2, v1, layer, brightness);
-                vert(v, bx+tx, by+fy, bz+tz, u2, v2, layer, brightness);
-                vert(v, bx+fx, by+fy, bz+tz, u1, v2, layer, brightness);
-                vert(v, bx+tx, by+fy, bz+fz, u2, v1, layer, brightness);
-                vert(v, bx+fx, by+fy, bz+tz, u1, v2, layer, brightness);
-                vert(v, bx+fx, by+fy, bz+fz, u1, v1, layer, brightness);
+                vert(v, bx + tx, by + fy, bz + fz, u2, v1, layer, brightness);
+                vert(v, bx + tx, by + fy, bz + tz, u2, v2, layer, brightness);
+                vert(v, bx + fx, by + fy, bz + tz, u1, v2, layer, brightness);
+                vert(v, bx + tx, by + fy, bz + fz, u2, v1, layer, brightness);
+                vert(v, bx + fx, by + fy, bz + tz, u1, v2, layer, brightness);
+                vert(v, bx + fx, by + fy, bz + fz, u1, v1, layer, brightness);
                 break;
 
             case NORTH:
                 // z = bz+fz  |  x→u  |  y→v (inverted: ty→v1, fy→v2)
-                vert(v, bx+tx, by+fy, bz+fz, u2, v2, layer, brightness);
-                vert(v, bx+fx, by+fy, bz+fz, u1, v2, layer, brightness);
-                vert(v, bx+fx, by+ty, bz+fz, u1, v1, layer, brightness);
-                vert(v, bx+tx, by+fy, bz+fz, u2, v2, layer, brightness);
-                vert(v, bx+fx, by+ty, bz+fz, u1, v1, layer, brightness);
-                vert(v, bx+tx, by+ty, bz+fz, u2, v1, layer, brightness);
+                vert(v, bx + tx, by + fy, bz + fz, u2, v2, layer, brightness);
+                vert(v, bx + fx, by + fy, bz + fz, u1, v2, layer, brightness);
+                vert(v, bx + fx, by + ty, bz + fz, u1, v1, layer, brightness);
+                vert(v, bx + tx, by + fy, bz + fz, u2, v2, layer, brightness);
+                vert(v, bx + fx, by + ty, bz + fz, u1, v1, layer, brightness);
+                vert(v, bx + tx, by + ty, bz + fz, u2, v1, layer, brightness);
                 break;
 
             case SOUTH:
                 // z = bz+tz  |  x→u  |  y→v (inverted)
-                vert(v, bx+fx, by+fy, bz+tz, u1, v2, layer, brightness);
-                vert(v, bx+tx, by+fy, bz+tz, u2, v2, layer, brightness);
-                vert(v, bx+tx, by+ty, bz+tz, u2, v1, layer, brightness);
-                vert(v, bx+fx, by+fy, bz+tz, u1, v2, layer, brightness);
-                vert(v, bx+tx, by+ty, bz+tz, u2, v1, layer, brightness);
-                vert(v, bx+fx, by+ty, bz+tz, u1, v1, layer, brightness);
+                vert(v, bx + fx, by + fy, bz + tz, u1, v2, layer, brightness);
+                vert(v, bx + tx, by + fy, bz + tz, u2, v2, layer, brightness);
+                vert(v, bx + tx, by + ty, bz + tz, u2, v1, layer, brightness);
+                vert(v, bx + fx, by + fy, bz + tz, u1, v2, layer, brightness);
+                vert(v, bx + tx, by + ty, bz + tz, u2, v1, layer, brightness);
+                vert(v, bx + fx, by + ty, bz + tz, u1, v1, layer, brightness);
                 break;
 
             case WEST:
                 // x = bx+fx  |  z→u  |  y→v (inverted)
-                vert(v, bx+fx, by+ty, bz+fz, u1, v1, layer, brightness);
-                vert(v, bx+fx, by+fy, bz+fz, u1, v2, layer, brightness);
-                vert(v, bx+fx, by+fy, bz+tz, u2, v2, layer, brightness);
-                vert(v, bx+fx, by+ty, bz+fz, u1, v1, layer, brightness);
-                vert(v, bx+fx, by+fy, bz+tz, u2, v2, layer, brightness);
-                vert(v, bx+fx, by+ty, bz+tz, u2, v1, layer, brightness);
+                vert(v, bx + fx, by + ty, bz + fz, u1, v1, layer, brightness);
+                vert(v, bx + fx, by + fy, bz + fz, u1, v2, layer, brightness);
+                vert(v, bx + fx, by + fy, bz + tz, u2, v2, layer, brightness);
+                vert(v, bx + fx, by + ty, bz + fz, u1, v1, layer, brightness);
+                vert(v, bx + fx, by + fy, bz + tz, u2, v2, layer, brightness);
+                vert(v, bx + fx, by + ty, bz + tz, u2, v1, layer, brightness);
                 break;
 
             case EAST:
                 // x = bx+tx  |  z→u (inverted: tz→u1, fz→u2... keep symmetric with WEST)
-                vert(v, bx+tx, by+ty, bz+tz, u2, v1, layer, brightness);
-                vert(v, bx+tx, by+fy, bz+tz, u2, v2, layer, brightness);
-                vert(v, bx+tx, by+fy, bz+fz, u1, v2, layer, brightness);
-                vert(v, bx+tx, by+ty, bz+fz, u1, v1, layer, brightness);
-                vert(v, bx+tx, by+ty, bz+tz, u2, v1, layer, brightness);
-                vert(v, bx+tx, by+fy, bz+fz, u1, v2, layer, brightness);
+                vert(v, bx + tx, by + ty, bz + tz, u2, v1, layer, brightness);
+                vert(v, bx + tx, by + fy, bz + tz, u2, v2, layer, brightness);
+                vert(v, bx + tx, by + fy, bz + fz, u1, v2, layer, brightness);
+                vert(v, bx + tx, by + ty, bz + fz, u1, v1, layer, brightness);
+                vert(v, bx + tx, by + ty, bz + tz, u2, v1, layer, brightness);
+                vert(v, bx + tx, by + fy, bz + fz, u1, v2, layer, brightness);
                 break;
         }
     }
@@ -354,11 +392,18 @@ public class ChunkMeshBuilder implements Runnable {
      */
     private static float getFaceBrightness(BlockModel.Face face) {
         switch (face) {
-            case UP:             return 1.0f;
-            case DOWN:           return 0.7f;
-            case NORTH: case SOUTH: return 0.8f;
-            case WEST:  case EAST:  return 0.9f;
-            default:             return 1.0f;
+            case UP:
+                return 1.0f;
+            case DOWN:
+                return 0.7f;
+            case NORTH:
+            case SOUTH:
+                return 0.8f;
+            case WEST:
+            case EAST:
+                return 0.9f;
+            default:
+                return 1.0f;
         }
     }
 
@@ -367,8 +412,11 @@ public class ChunkMeshBuilder implements Runnable {
      */
     private void vert(FloatList v, float x, float y, float z,
                       float u, float tv, int layer, float brightness) {
-        v.add(x); v.add(y); v.add(z);
-        v.add(u); v.add(tv);
+        v.add(x);
+        v.add(y);
+        v.add(z);
+        v.add(u);
+        v.add(tv);
         v.add((float) layer);
         v.add(brightness);
     }
@@ -381,13 +429,29 @@ public class ChunkMeshBuilder implements Runnable {
         meshingQueue.add(new ChunkManager.ChunkPos(chunkX, chunkZ));
     }
 
-    public MeshUploadTask pollUploadTask()     { return uploadQueue.poll(); }
-    public boolean        hasUploadTasks()     { return !uploadQueue.isEmpty(); }
-    public int            getQueueSize()       { return meshingQueue.size(); }
-    public int            getUploadQueueSize() { return uploadQueue.size(); }
+    public MeshUploadTask pollUploadTask() {
+        return uploadQueue.poll();
+    }
 
-    public void pause()  { paused.set(true);  }
-    public void resume() { paused.set(false); }
+    public boolean hasUploadTasks() {
+        return !uploadQueue.isEmpty();
+    }
+
+    public int getQueueSize() {
+        return meshingQueue.size();
+    }
+
+    public int getUploadQueueSize() {
+        return uploadQueue.size();
+    }
+
+    public void pause() {
+        paused.set(true);
+    }
+
+    public void resume() {
+        paused.set(false);
+    }
 
     /**
      * Stops the meshing thread and releases all pending off-heap buffers.
@@ -421,23 +485,34 @@ public class ChunkMeshBuilder implements Runnable {
         private FloatBuffer data;
 
         MeshUploadTask(int cx, int cz, FloatBuffer data, int vertexCount) {
-            this.chunkX      = cx;
-            this.chunkZ      = cz;
-            this.data        = data;
+            this.chunkX = cx;
+            this.chunkZ = cz;
+            this.data = data;
             this.vertexCount = vertexCount;
         }
 
-        public FloatBuffer getData()    { return data; }
-        public void releaseBuffer()     { data = null; }
+        public FloatBuffer getData() {
+            return data;
+        }
+
+        public void releaseBuffer() {
+            data = null;
+        }
     }
 
     // ── FloatList ─────────────────────────────────────────────────────────────
 
     private static class FloatList {
         private float[] arr;
-        private int     size = 0;
+        private int size = 0;
 
-        FloatList(int initialCapacity) { arr = new float[initialCapacity]; }
+        FloatList(int initialCapacity) {
+            arr = new float[initialCapacity];
+        }
+
+        void clear() {
+            size = 0;
+        }
 
         void add(float f) {
             if (size == arr.length) {

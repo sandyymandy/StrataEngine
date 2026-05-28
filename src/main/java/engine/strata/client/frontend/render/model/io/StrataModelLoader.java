@@ -7,28 +7,359 @@ import engine.strata.client.frontend.render.model.StrataMeshData;
 import engine.strata.client.frontend.render.model.StrataModel;
 import engine.strata.core.io.ResourceManager;
 import engine.strata.util.Identifier;
-import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 public class StrataModelLoader {
     private static final Logger LOGGER = LoggerFactory.getLogger("ModelLoader");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
+    // Binary format constants
+    private static final String BINARY_MAGIC = "STRM";
+
     /**
-     * Loads a model from a .strmodel JSON file.
+     * Loads a model from a .strmodel file (supports both JSON and binary formats).
      */
     public static StrataModel load(Identifier id) {
         try {
-            String json = ResourceManager.loadAsString(id, "models/entities", "strmodel");
-            if (json == null || json.isEmpty()) {
+            byte[] data = ResourceManager.loadAsBytes(id, "models/entities", "strmodel");
+            if (data == null || data.length == 0) {
                 LOGGER.error("Failed to load model: {}", id);
                 return createFallbackModel(id);
             }
 
+            // Check if it's binary format (starts with "STRM")
+            if (data.length >= 4 &&
+                    data[0] == 'S' && data[1] == 'T' && data[2] == 'R' && data[3] == 'M') {
+                LOGGER.info("Loading binary format model: {}", id);
+                return loadBinary(id, data);
+            } else {
+                // Fall back to JSON format
+                LOGGER.info("Loading JSON format model: {}", id);
+                String json = new String(data, StandardCharsets.UTF_8);
+                return loadJson(id, json);
+            }
+
+        } catch (Exception e) {
+            LOGGER.error("Error loading model {}: {}", id, e.getMessage());
+            e.printStackTrace();
+            return createFallbackModel(id);
+        }
+    }
+
+    /**
+     * Loads a model from binary format.
+     */
+    private static StrataModel loadBinary(Identifier id, byte[] data) throws IOException {
+        BinaryReader reader = new BinaryReader(data);
+
+        // Read and validate header
+        String magic = reader.readFixedString(4);
+        if (!BINARY_MAGIC.equals(magic)) {
+            throw new IOException("Invalid binary format: wrong magic number");
+        }
+
+        int version = reader.readUInt16();
+        int flags = reader.readUInt16();
+        int stringCount = reader.readUInt16();
+        int textureCount = reader.readUInt16();
+        int boneCount = reader.readUInt16();
+        int meshCount = reader.readUInt16();
+        int cuboidCount = reader.readUInt16();
+        int stringTableSize = reader.readInt32();
+
+        // Read bounding box
+        float minX = reader.readFloat32();
+        float minY = reader.readFloat32();
+        float minZ = reader.readFloat32();
+        float maxX = reader.readFloat32();
+        float maxY = reader.readFloat32();
+        float maxZ = reader.readFloat32();
+
+        AABB boundingBox = new AABB(minX, minY, minZ, maxX, maxY, maxZ);
+
+        // Skip reserved bytes
+        reader.skip(18);
+
+        // Read string table
+        String[] stringTable = new String[stringCount];
+        for (int i = 0; i < stringCount; i++) {
+            stringTable[i] = reader.readString();
+        }
+
+        // Read textures
+        Map<String, StrataModel.TextureInfo> textureMap = new HashMap<>();
+        String[] textureNames = new String[textureCount];
+
+        for (int i = 0; i < textureCount; i++) {
+            int nameIndex = reader.readUInt16();
+            int width = reader.readUInt16();
+            int height = reader.readUInt16();
+
+            String textureName = stringTable[nameIndex];
+            textureNames[i] = textureName;
+            textureMap.put(textureName, new StrataModel.TextureInfo(width, height));
+        }
+
+        // Read bones
+        BoneData[] bones = new BoneData[boneCount];
+
+        for (int i = 0; i < boneCount; i++) {
+            int nameIndex = reader.readUInt16();
+            int parentIndex = reader.readInt16();
+
+            Vector3f pivot = new Vector3f(
+                    reader.readFloat32(),
+                    reader.readFloat32(),
+                    reader.readFloat32()
+            );
+
+            // Rotation is stored in degrees, convert to radians
+            Vector3f rotation = new Vector3f(
+                    (float) Math.toRadians(reader.readFloat32()),
+                    (float) Math.toRadians(reader.readFloat32()),
+                    (float) Math.toRadians(reader.readFloat32())
+            );
+
+            int boneFlags = reader.readUInt8();
+            boolean hidden = (boneFlags & 1) != 0;
+
+            int elementCount = reader.readUInt16();
+            List<ElementRef> elements = new ArrayList<>();
+
+            for (int j = 0; j < elementCount; j++) {
+                int type = reader.readUInt8(); // 0 = mesh, 1 = cuboid
+                int index = reader.readUInt16();
+                elements.add(new ElementRef(type, index));
+            }
+
+            bones[i] = new BoneData(
+                    stringTable[nameIndex],
+                    parentIndex,
+                    pivot,
+                    rotation,
+                    hidden,
+                    elements
+            );
+        }
+
+        // Read meshes
+        Map<String, StrataMeshData> meshMap = new HashMap<>();
+        MeshElement[] meshElements = new MeshElement[meshCount];
+
+        for (int i = 0; i < meshCount; i++) {
+            int nameIndex = reader.readUInt16();
+            int textureIndex = reader.readUInt16();
+
+            Vector3f origin = new Vector3f(
+                    reader.readFloat32(),
+                    reader.readFloat32(),
+                    reader.readFloat32()
+            );
+
+            // Rotation is in degrees, convert to radians
+            Vector3f rotation = new Vector3f(
+                    (float) Math.toRadians(reader.readFloat32()),
+                    (float) Math.toRadians(reader.readFloat32()),
+                    (float) Math.toRadians(reader.readFloat32())
+            );
+
+            int meshFlags = reader.readUInt8();
+            boolean hidden = (meshFlags & 1) != 0;
+            boolean smooth = (meshFlags & 2) != 0;
+
+            int vertexCount = reader.readInt32();
+            int faceCount = reader.readInt32();
+
+            // Read vertices
+            Map<String, Vector3f> vertices = new HashMap<>();
+            for (int j = 0; j < vertexCount; j++) {
+                Vector3f vertex = new Vector3f(
+                        reader.readFloat32(),
+                        reader.readFloat32(),
+                        reader.readFloat32()
+                );
+                vertices.put("v" + j, vertex);
+            }
+
+            // Read faces
+            Map<String, StrataMeshData.Face> faces = new HashMap<>();
+            for (int j = 0; j < faceCount; j++) {
+                int faceVertCount = reader.readUInt8();
+                List<String> vertexIds = new ArrayList<>();
+                Map<String, float[]> uvs = new HashMap<>();
+
+                for (int k = 0; k < faceVertCount; k++) {
+                    int vIndex = reader.readInt32();
+                    float u = reader.readFloat32();
+                    float v = reader.readFloat32();
+
+                    String vertexId = "v" + vIndex;
+                    vertexIds.add(vertexId);
+                    uvs.put(vertexId, new float[]{u, v});
+                }
+
+                faces.put("f" + j, new StrataMeshData.Face(vertexIds, uvs));
+            }
+
+            String meshName = stringTable[nameIndex];
+            String textureName = textureNames[textureIndex];
+
+            StrataMeshData.Mesh meshData = new StrataMeshData.Mesh(smooth, vertices, faces);
+            StrataMeshData strataMesh = new StrataMeshData(
+                    "blockbench_mesh",
+                    textureName,
+                    origin,
+                    rotation,
+                    meshData,
+                    null
+            );
+
+            meshMap.put(meshName, strataMesh);
+            meshElements[i] = new MeshElement(meshName, strataMesh);
+        }
+
+        // Read cuboids
+        CuboidElement[] cuboidElements = new CuboidElement[cuboidCount];
+
+        for (int i = 0; i < cuboidCount; i++) {
+            int nameIndex = reader.readUInt16();
+            int textureIndex = reader.readUInt16();
+
+            Vector3f origin = new Vector3f(
+                    reader.readFloat32(),
+                    reader.readFloat32(),
+                    reader.readFloat32()
+            );
+
+            // Rotation is in degrees, convert to radians
+            Vector3f rotation = new Vector3f(
+                    (float) Math.toRadians(reader.readFloat32()),
+                    (float) Math.toRadians(reader.readFloat32()),
+                    (float) Math.toRadians(reader.readFloat32())
+            );
+
+            Vector3f from = new Vector3f(
+                    reader.readFloat32(),
+                    reader.readFloat32(),
+                    reader.readFloat32()
+            );
+
+            Vector3f to = new Vector3f(
+                    reader.readFloat32(),
+                    reader.readFloat32(),
+                    reader.readFloat32()
+            );
+
+            float inflate = reader.readFloat32();
+            int cuboidFlags = reader.readUInt8();
+            boolean hidden = (cuboidFlags & 1) != 0;
+
+            int faceCount = reader.readUInt8();
+            Map<String, StrataMeshData.CuboidFace> faces = new HashMap<>();
+
+            String[] faceNames = {"north", "south", "east", "west", "up", "down"};
+
+            for (int j = 0; j < faceCount; j++) {
+                int faceId = reader.readUInt8();
+                float u1 = reader.readFloat32();
+                float v1 = reader.readFloat32();
+                float u2 = reader.readFloat32();
+                float v2 = reader.readFloat32();
+                int faceRotation = reader.readUInt8();
+
+                if (faceId < faceNames.length) {
+                    faces.put(faceNames[faceId], new StrataMeshData.CuboidFace(
+                            new float[]{u1, v1, u2, v2},
+                            faceRotation
+                    ));
+                }
+            }
+
+            String cuboidName = stringTable[nameIndex];
+            String textureName = textureNames[textureIndex];
+
+            StrataMeshData.Cuboid cuboidData = new StrataMeshData.Cuboid(from, to, inflate, faces);
+            StrataMeshData strataCuboid = new StrataMeshData(
+                    "blockbench_cuboid",
+                    textureName,
+                    origin,
+                    rotation,
+                    null,
+                    cuboidData
+            );
+
+            meshMap.put(cuboidName, strataCuboid);
+            cuboidElements[i] = new CuboidElement(cuboidName, strataCuboid);
+        }
+
+        // Build bone hierarchy
+        StrataBone[] strataBones = new StrataBone[boneCount];
+
+        for (int i = 0; i < boneCount; i++) {
+            BoneData boneData = bones[i];
+
+            // Collect mesh IDs for this bone
+            List<String> meshIds = new ArrayList<>();
+            for (ElementRef ref : boneData.elements) {
+                if (ref.type == 0) {
+                    // Mesh
+                    meshIds.add(meshElements[ref.index].name);
+                } else {
+                    // Cuboid
+                    meshIds.add(cuboidElements[ref.index].name);
+                }
+            }
+
+            strataBones[i] = new StrataBone(
+                    boneData.name,
+                    null, // Parent will be set in next pass
+                    boneData.pivot,
+                    boneData.rotation,
+                    meshIds,
+                    boneData.hidden
+            );
+        }
+
+        // Set parent relationships
+        StrataBone rootBone = null;
+
+        for (int i = 0; i < boneCount; i++) {
+            BoneData boneData = bones[i];
+            if (boneData.parentIndex >= 0 && boneData.parentIndex < boneCount) {
+                strataBones[boneData.parentIndex].addChild(strataBones[i]);
+            } else {
+                // This is a root bone
+                rootBone = strataBones[i];
+            }
+        }
+
+        if (rootBone == null && boneCount > 0) {
+            rootBone = strataBones[0];
+        }
+
+        if (rootBone == null) {
+            LOGGER.error("No root bone found in binary model: {}", id);
+            return createFallbackModel(id);
+        }
+
+        return new StrataModel(id, boundingBox, rootBone, textureMap, meshMap);
+    }
+
+    /**
+     * Loads a model from JSON format (original implementation).
+     */
+    private static StrataModel loadJson(Identifier id, String json) {
+        try {
             JsonObject root = GSON.fromJson(json, JsonObject.class);
 
             // Parse the Textures Map
@@ -112,7 +443,7 @@ public class StrataModelLoader {
             return new StrataModel(id, boundingBox, rootBone, textureMap, meshes);
 
         } catch (Exception e) {
-            LOGGER.error("Error loading model {}: {}", id, e.getMessage());
+            LOGGER.error("Error loading JSON model {}: {}", id, e.getMessage());
             e.printStackTrace();
             return createFallbackModel(id);
         }
@@ -295,5 +626,109 @@ public class StrataModelLoader {
         AABB boundingBox = new AABB(-8, -8, -8, 8, 8, 8);
 
         return new StrataModel(id, boundingBox, root, textureMap, meshes);
+    }
+
+    // --------------------------
+    // BINARY READER HELPER CLASS
+    // --------------------------
+
+    private static class BinaryReader {
+        private final ByteBuffer buffer;
+
+        public BinaryReader(byte[] data) {
+            this.buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
+        }
+
+        public int readUInt8() {
+            return buffer.get() & 0xFF;
+        }
+
+        public int readInt16() {
+            return buffer.getShort();
+        }
+
+        public int readUInt16() {
+            return buffer.getShort() & 0xFFFF;
+        }
+
+        public int readInt32() {
+            return buffer.getInt();
+        }
+
+        public float readFloat32() {
+            return buffer.getFloat();
+        }
+
+        public String readString() {
+            int length = readUInt16();
+            byte[] bytes = new byte[length];
+            buffer.get(bytes);
+            return new String(bytes, StandardCharsets.UTF_8);
+        }
+
+        public String readFixedString(int length) {
+            byte[] bytes = new byte[length];
+            buffer.get(bytes);
+            // Find null terminator
+            int end = 0;
+            while (end < bytes.length && bytes[end] != 0) end++;
+            return new String(bytes, 0, end, StandardCharsets.UTF_8);
+        }
+
+        public void skip(int bytes) {
+            buffer.position(buffer.position() + bytes);
+        }
+    }
+
+    // --------------------------------------
+    // HELPER DATA CLASSES FOR BINARY PARSING
+    // --------------------------------------
+    private static class BoneData {
+        final String name;
+        final int parentIndex;
+        final Vector3f pivot;
+        final Vector3f rotation;
+        final boolean hidden;
+        final List<ElementRef> elements;
+
+        BoneData(String name, int parentIndex, Vector3f pivot, Vector3f rotation,
+                 boolean hidden, List<ElementRef> elements) {
+            this.name = name;
+            this.parentIndex = parentIndex;
+            this.pivot = pivot;
+            this.rotation = rotation;
+            this.hidden = hidden;
+            this.elements = elements;
+        }
+    }
+
+    private static class ElementRef {
+        final int type; // 0 = mesh, 1 = cuboid
+        final int index;
+
+        ElementRef(int type, int index) {
+            this.type = type;
+            this.index = index;
+        }
+    }
+
+    private static class MeshElement {
+        final String name;
+        final StrataMeshData data;
+
+        MeshElement(String name, StrataMeshData data) {
+            this.name = name;
+            this.data = data;
+        }
+    }
+
+    private static class CuboidElement {
+        final String name;
+        final StrataMeshData data;
+
+        CuboidElement(String name, StrataMeshData data) {
+            this.name = name;
+            this.data = data;
+        }
     }
 }

@@ -66,7 +66,6 @@ public class ClientFrontEnd {
     public void render(Collection<Entity> entities, float partialTicks, float deltaTime) {
         limitFramerate();
         this.masterRenderer.render(entities, partialTicks, deltaTime);
-        // UI overlay renders last in screen-space.
         this.ui.updateAndRender(this.masterRenderer.getGuiRenderer(), deltaTime);
     }
 

@@ -6,34 +6,6 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Formal rendering pipeline with defined stages and lifecycle.
- * 
- * <h3>Design:</h3>
- * <p>This class provides a structured approach to rendering with clear phases:
- * <ol>
- *   <li>PRE_RENDER - Setup (clear buffers, set uniforms)</li>
- *   <li>RENDER_OPAQUE - Opaque geometry (terrain, entities)</li>
- *   <li>RENDER_TRANSPARENT - Transparent geometry (sorted back-to-front)</li>
- *   <li>POST_RENDER - Effects and overlays</li>
- * </ol>
- * 
- * <h3>Usage:</h3>
- * <pre>{@code
- * RenderPipeline pipeline = new RenderPipeline();
- * 
- * pipeline.registerStage(RenderStage.PRE_RENDER, () -> {
- *     RenderSystem.clear(0.5f, 0.7f, 0.9f, 1.0f);
- * });
- * 
- * pipeline.registerStage(RenderStage.RENDER_OPAQUE, () -> {
- *     renderChunks();
- *     renderEntities();
- * });
- * 
- * pipeline.execute(partialTicks, deltaTime);
- * }</pre>
- */
 public class RenderPipeline {
     
     private static final Logger LOGGER = LoggerFactory.getLogger("RenderPipeline");

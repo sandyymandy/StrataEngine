@@ -249,26 +249,46 @@
   }
 
   // Helper function to get the element's texture
-  function getElementTexture(cube) {
+  function getElementTexture(element) {
     let textureRef = "untextured";
     let foundTexture = null;
     const textures = new Set();
 
-    if (cube.faces) {
-      for (let faceName of ['north', 'south', 'east', 'west', 'up', 'down']) {
-        const face = cube.faces[faceName];
-        const texName = getTextureNameFromFace(face);
-        if (texName) {
-          textures.add(texName);
-          if (!foundTexture) {
-            foundTexture = texName;
+    if (element.faces) {
+      // Check if this is a Cube (has named faces) or Mesh (has face dictionary)
+      const isCube = element.faces.north !== undefined;
+
+      if (isCube) {
+        // Cuboid - iterate through named faces
+        for (let faceName of ['north', 'south', 'east', 'west', 'up', 'down']) {
+          const face = element.faces[faceName];
+          const texName = getTextureNameFromFace(face);
+          if (texName) {
+            textures.add(texName);
+            if (!foundTexture) {
+              foundTexture = texName;
+            }
+          }
+        }
+      } else {
+        // Mesh - iterate through face dictionary
+        for (let faceKey in element.faces) {
+          const face = element.faces[faceKey];
+          if (face.texture !== null && face.texture !== undefined) {
+            const texture = Texture.all.find(t => t.uuid === face.texture);
+            if (texture) {
+              textures.add(texture.name);
+              if (!foundTexture) {
+                foundTexture = texture.name;
+              }
+            }
           }
         }
       }
     }
 
     if (textures.size > 1) {
-      console.warn(`Element "${cube.name || 'unnamed'}" has multiple textures: ${Array.from(textures).join(', ')}. Using first found: ${foundTexture}`);
+      console.warn(`Element "${element.name || 'unnamed'}" has multiple textures: ${Array.from(textures).join(', ')}. Using first found: ${foundTexture}`);
     }
 
     return foundTexture || textureRef;
@@ -420,7 +440,8 @@
         // Process children
         for (const child of bone.children) {
           if (child instanceof _Cube) {
-            // Cuboid
+            // Use a unique key matching the JSON format: {boneName}_cuboid_{N}
+            const uniqueKey = `${bone.name}_cuboid_${cuboidData.length}`;
             const cuboidIndex = cuboidData.length;
             const texture = getElementTexture(child);
             const textureIndex = textureIndexMap.get(texture) || 0;
@@ -441,7 +462,7 @@
             }
 
             cuboidData.push({
-              nameIndex: addString(child.name || 'cube'),
+              nameIndex: addString(uniqueKey),
               textureIndex,
               origin: child.origin || [0, 0, 0],
               rotation: child.rotation || [0, 0, 0],
@@ -455,7 +476,8 @@
             elements.push({ type: 1, index: cuboidIndex });
 
           } else if (child instanceof _Mesh) {
-            // Mesh
+            // Use a unique key matching the JSON format: {boneName}_mesh_{N}
+            const uniqueKey = `${bone.name}_mesh_${meshData.length}`;
             const meshIndex = meshData.length;
             const texture = getElementTexture(child);
             const textureIndex = textureIndexMap.get(texture) || 0;
@@ -484,7 +506,7 @@
             }
 
             meshData.push({
-              nameIndex: addString(child.name || 'mesh'),
+              nameIndex: addString(uniqueKey),
               textureIndex,
               origin: child.origin || [0, 0, 0],
               rotation: child.rotation || [0, 0, 0],
@@ -498,11 +520,14 @@
           }
         }
 
+        // FIX: use actual bone rotation and visibility instead of hardcoded values
         boneData.push({
           nameIndex,
           parentIndex,
           pivot: bone.origin || [0, 0, 0],
-          rotation: bone.rotation || [0, 0, 0],
+          rotation: (bone.rotation && (bone.rotation[0] !== 0 || bone.rotation[1] !== 0 || bone.rotation[2] !== 0))
+            ? [bone.rotation[0], bone.rotation[1], bone.rotation[2]]
+            : [0, 0, 0],
           hidden: !bone.visibility,
           elements
         });
@@ -802,50 +827,50 @@
         });
       }
 
-      // Step 1: Create all groups, init them, and add elements immediately
+      // Build bone hierarchy
       const boneGroups = [];
 
       for (let i = 0; i < bones.length; i++) {
         const bone = bones[i];
-        // Create and init immediately (like JSON format)
         const group = new Group({
           name: bone.name,
-          origin: bone.pivot
-        }).init();
+          origin: bone.pivot,
+          rotation: bone.rotation
+        });
 
-        if (bone.rotation && (bone.rotation[0] !== 0 || bone.rotation[1] !== 0 || bone.rotation[2] !== 0)) {
-          group.rotation = bone.rotation;
-        }
-
-        // Set visibility
         if (bone.hidden) {
           group.visibility = false;
         }
 
         boneGroups.push(group);
-
-        // Add elements to this bone immediately (like JSON format)
-        const elements = boneElements[i];
-        for (const elem of elements) {
-          if (elem.type === 0) {
-            // Mesh
-            const meshData = meshes[elem.index];
-            createBlockbenchElement(meshData, group, meshData.name, textureMap);
-          } else {
-            // Cuboid
-            const cuboidData = cuboids[elem.index];
-            createBlockbenchElement(cuboidData, group, cuboidData.name, textureMap);
-          }
-        }
       }
 
-      // Step 2: Set parent relationships in second pass (like JSON format)
+      // Set parent relationships
       for (let i = 0; i < bones.length; i++) {
         const bone = bones[i];
         if (bone.parentIndex >= 0 && bone.parentIndex < boneGroups.length) {
           boneGroups[i].addTo(boneGroups[bone.parentIndex]);
+        } else {
+          boneGroups[i].addTo();
         }
-        // If no parent, group stays at root (already added via init)
+      }
+
+      // Add elements to bones
+      for (let i = 0; i < boneElements.length; i++) {
+        const elements = boneElements[i];
+        const parent = boneGroups[i];
+
+        for (const elem of elements) {
+          if (elem.type === 0) {
+            // Mesh
+            const meshData = meshes[elem.index];
+            createBlockbenchElement(meshData, parent, meshData.name, textureMap);
+          } else {
+            // Cuboid
+            const cuboidData = cuboids[elem.index];
+            createBlockbenchElement(cuboidData, parent, cuboidData.name, textureMap);
+          }
+        }
       }
 
       Canvas.updateAll();
@@ -856,11 +881,11 @@
   // PLUGIN REGISTRATION
   // ============================================================================
 
-  Plugin.register('strata_engine_format_binary', {
-    title: 'Strata Engine Format (Binary)',
+  Plugin.register('strata_engine_tool_kit', {
+    title: 'Strata Engine Tool Kit',
     author: 'SandyMandy',
-    description: 'Binary format support for Strata Engine models',
-    icon: 'icon-format_java',
+    description: 'Adds format support for Strata Engine models and animations',
+    icon: 'icon-objects',
     version: STRATA_FORMAT_VERSION,
     variant: 'both',
 
@@ -870,10 +895,10 @@
 
       // Create the Strata format
       format = new ModelFormat({
-        id: 'strata_model_format_binary',
-        name: 'Strata Model (Binary)',
-        description: 'Binary model format for Strata Engine',
-        icon: 'icon-format_java',
+        id: 'strata_model_format',
+        name: 'Strata Model',
+        description: 'a binary model format for Strata Engine',
+        icon: 'icon-objects',
         category: 'minecraft',
         target: ['Modded Entity'],
         codec,
@@ -886,10 +911,10 @@
       });
 
       // Model Export Action
-      modelExportAction = new Action('export_strata_model_binary', {
-        name: 'Export Strata Model (Binary)',
+      modelExportAction = new Action('export_strata_model', {
+        name: 'Export Strata Model',
         icon: 'save',
-        description: 'Export model to binary Strata Engine format',
+        description: 'Export model to the Strata format',
         category: 'file',
         condition: () => Format === format,
         async click() {
@@ -948,10 +973,10 @@
       });
 
       // Model Import Action
-      modelImportAction = new Action('import_strata_model_binary', {
-        name: 'Import Strata Model (Binary)',
+      modelImportAction = new Action('import_strata_model', {
+        name: 'Import Strata Model',
         icon: 'folder_open',
-        description: 'Import model from binary Strata Engine format',
+        description: 'Import model from the Strata format',
         category: 'file',
         click() {
           Blockbench.import({
@@ -981,7 +1006,7 @@
       MenuBar.addAction(modelExportAction, 'file.export');
       MenuBar.addAction(modelImportAction, 'file.import');
 
-      console.log('Strata Engine Binary Format plugin loaded successfully');
+      console.log('Strata Engine Took Kit loaded successfully');
     },
 
     onunload() {

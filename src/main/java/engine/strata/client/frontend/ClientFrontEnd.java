@@ -1,14 +1,10 @@
 package engine.strata.client.frontend;
 
-import engine.helios.rendering.RenderSystem;
 import engine.helios.rendering.shader.ShaderManager;
 import engine.strata.api.ClientFrontEndInitializer;
 import engine.strata.client.StrataClient;
-import engine.strata.client.frontend.render.renderer.entity.EntityRenderDispatcher;
 import engine.strata.client.frontend.render.renderer.entity.EntityRendererRegistry;
-import engine.strata.client.frontend.render.renderer.entity.entities.BiaEntityRenderer;
 import engine.strata.client.frontend.render.renderer.entity.entities.CharacterEntityRenderer;
-import engine.strata.client.frontend.render.renderer.entity.entities.MikaEntityRenderer;
 import engine.strata.client.frontend.render.renderer.entity.entities.PlayerEntityRenderer;
 import engine.strata.client.frontend.ui.UiManager;
 import engine.strata.client.frontend.window.Window;
@@ -147,10 +143,8 @@ public class ClientFrontEnd {
 
     private void init() {
         setFramerateCap(FramerateCap.VSYNC);
-        EntityRendererRegistry.register(EntityRegistry.MIKA, MikaEntityRenderer::new);
         EntityRendererRegistry.register(EntityRegistry.PLAYER, PlayerEntityRenderer::new);
         EntityRendererRegistry.register(EntityRegistry.CHARACTER, CharacterEntityRenderer::new);
-        EntityRendererRegistry.register(EntityRegistry.BIA, BiaEntityRenderer::new);
 
         LOGGER.info("Client frontend initialized with universal entity rendering");
     }

@@ -1,4 +1,4 @@
-package engine.strata.client.frontend.render.renderer.entity.entities;
+package engine.strata.client.frontend.render.renderer.entity;
 
 import engine.helios.rendering.GpuModelCache;
 import engine.helios.rendering.MeshRenderer;

@@ -1,6 +1,5 @@
 package engine.strata.client.frontend.render.renderer.entity;
 
-import engine.strata.client.frontend.render.renderer.entity.entities.EntityRenderer;
 import engine.strata.entity.Entity;
 import engine.strata.entity.util.EntityKey;
 

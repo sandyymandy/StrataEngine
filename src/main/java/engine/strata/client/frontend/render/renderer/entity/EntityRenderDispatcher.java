@@ -2,7 +2,6 @@ package engine.strata.client.frontend.render.renderer.entity;
 
 import engine.helios.rendering.vertex.MatrixStack;
 import engine.strata.client.frontend.render.renderer.context.RenderContext;
-import engine.strata.client.frontend.render.renderer.entity.entities.EntityRenderer;
 import engine.strata.entity.Entity;
 import engine.strata.entity.util.EntityKey;
 import org.slf4j.Logger;

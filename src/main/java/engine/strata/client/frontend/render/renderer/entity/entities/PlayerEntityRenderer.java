@@ -3,6 +3,7 @@ package engine.strata.client.frontend.render.renderer.entity.entities;
 import engine.strata.client.frontend.render.model.ModelInstance;
 import engine.strata.client.frontend.render.model.io.ModelManager;
 import engine.strata.client.frontend.render.renderer.context.RenderContext;
+import engine.strata.client.frontend.render.renderer.entity.EntityRenderer;
 import engine.strata.entity.entities.PlayerEntity;
 import engine.strata.util.Identifier;
 

@@ -5,9 +5,6 @@ import engine.strata.client.StrataClient;
 import engine.strata.client.input.InputSystem;
 import engine.strata.client.input.keybind.Keybinds;
 import engine.strata.core.entrypoint.EntrypointManager;
-import engine.strata.entity.Entity;
-import engine.strata.entity.entities.BiaEntity;
-import engine.strata.entity.entities.MikaEntity;
 import engine.strata.entity.entities.PlayerEntity;
 import engine.strata.entity.util.EntityKey;
 import engine.strata.event.events.KeyEvent;
@@ -37,7 +34,6 @@ public class ClientBackEnd {
         this.world = new World("TestWorld", System.currentTimeMillis());
         this.player = (PlayerEntity) world.spawnEntity(EntityRegistry.PLAYER, new Vec3d(0, 90, 0));
         spawnTestEntities(EntityRegistry.CHARACTER,5);
-        spawnTestEntities(EntityRegistry.MIKA,10);
 
         // Pre-load chunks around spawn
         LOGGER.info("Pre-loading spawn chunks...");

@@ -1,0 +1,20 @@
+{
+  "id": "strata:character",
+  "format_version": 3,
+  "textures": {
+    "Mouth.png": {
+      "path": "strata:entities/model/mouth",
+      "width": 4096,
+      "height": 4096,
+      "translucent": true,
+      "render_priority": 2
+    },
+    "Skin.png": {
+      "path": "strata:entities/model/skin",
+      "width": 64,
+      "height": 64,
+      "translucent": true,
+      "render_priority": 1
+    }
+  }
+}

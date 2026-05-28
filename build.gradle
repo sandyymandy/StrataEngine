@@ -35,6 +35,9 @@ dependencies {
     runtimeOnly "org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives"
     runtimeOnly "org.lwjgl:lwjgl-stb:$lwjglVersion:$lwjglNatives"
 
+    // Vulkan
+    implementation "org.lwjgl:lwjgl-vulkan:$lwjglVersion"
+
     // OpenGL
     implementation "org.lwjgl:lwjgl-opengl:$lwjglVersion"
     runtimeOnly "org.lwjgl:lwjgl-opengl:$lwjglVersion:$lwjglNatives"
